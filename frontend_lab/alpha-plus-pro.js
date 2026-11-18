@@ -788,7 +788,7 @@
     backendsUsed: null,
     artifacts: null,
     deletionAudit: null,
-    privacyLevel: null,
+    privacyLevel: 1,
     reconstructionMode: DEFAULT_RECONSTRUCTION_MODE,
     activeReconstructionMode: null,
     effectiveReconstructionMode: null,
@@ -2339,6 +2339,8 @@
 
   function openModal() {
     if (typeof document === 'undefined') return;
+    if (!state.privacyLevel) state.privacyLevel = 1;
+    if (!state.reconstructionMode) state.reconstructionMode = DEFAULT_RECONSTRUCTION_MODE;
     if (state.bridge && typeof state.bridge.closeBodyEditModal === 'function') {
       state.bridge.closeBodyEditModal();
     }
@@ -2392,7 +2394,7 @@
     state.bodyScan = null;
     state.artifacts = null;
     state.deletionAudit = null;
-    state.privacyLevel = null;
+    state.privacyLevel = 1;
     state.reconstructionMode = DEFAULT_RECONSTRUCTION_MODE;
     state.activeReconstructionMode = null;
     state.effectiveReconstructionMode = null;
