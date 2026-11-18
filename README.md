@@ -15,7 +15,7 @@ Pipeline xử lý ảnh đa góc $\rightarrow$ phân tách ngữ nghĩa tóc/da 
 * `bodyscan_pipeline/texturing.py`: Bước 3 — Trải UV tách 2 vật liệu `["body", "head"]` (atlas đầu `2048×2048`, thân `2048×2048`), chiếu đa góc ưu tiên `PyTorch3D` (hoặc CPU Z-Buffer fallback), **Quyết định 3b** làm mờ chỉ vùng da mặt ở Mức 2 trong khi giữ sắc nét phần tóc, inpaint chặt không bịa chi tiết vùng mặt khuất.
 * `bodyscan_pipeline/exporter.py`: Xuất `scan.glb`, `scan_core.glb` (chế độ `dual_layer`), `tex_blur.jpg`, `tex_face.jpg`, `scan_preview_blur.glb`, `scan_preview_face.glb`, `body_scan.json`, nhật ký xoá ảnh (`deletion_audit.jsonl`) và ảnh QA.
 * `bodyscan_pipeline/scan_service.py`: Bộ điều phối tuần tự qua khóa `GpuScanEngine._lock`, tự động hạ cấp về `calibrated_mhr` kèm cảnh báo nếu thiếu 4 góc chuẩn, giữ đồng bộ hình học chi tiết ở Mức 1/2/3 (**Quyết định 3a**), và `MockScanEngine` cho test CPU.
-* `bodyscan_pipeline/api_server.py`: Máy chủ FastAPI (`/health`, `POST /api/v1/bodyscan`, `GET /api/v1/bodyscan/{job_id}`, tải file có chữ ký, và xoá tài sản 3D theo Quyết định 3a trả `410 Gone`), hỗ trợ `--mock` và `--serve-frontend frontend_lab`.
+* `bodyscan_pipeline/api_server.py`: Máy chủ FastAPI (`/health`, `POST /api/v1/bodyscan`, `POST /api/v1/inbody/extract`, `GET /api/v1/bodyscan/{job_id}`, tải file có chữ ký, và xoá tài sản 3D theo Quyết định 3a trả `410 Gone`), hỗ trợ `--mock` và `--serve-frontend frontend_lab`.
 * `bodyscan_pipeline/run_scan.py`: CLI chạy toàn bộ pipeline từ `--image_folder` hoặc từ cache `step2_raw_outputs.pt` với `--reconstruction_mode`.
 * `bodyscan_pipeline/demo_ui.py`: Giao diện Gradio demo chọn `--reconstruction_mode` và tải về cả `scan.glb` lẫn `scan_core.glb`.
 
@@ -139,6 +139,8 @@ Mở [`AlphaScan_Plan2A_Colab.ipynb`](./AlphaScan_Plan2A_Colab.ipynb) trên Goog
 #### Chạy nhanh trên máy local (`--mock`, CPU, không cần GPU)
 ```bash
 pip install -r requirements.txt
+# PowerShell: $env:OPENAI_API_KEY="sk-..."
+# Tuỳ chọn: $env:OPENAI_INBODY_MODEL="gpt-5.6-luna"
 python -m bodyscan_pipeline.api_server \
   --mock \
   --region-mode internal_test \
@@ -146,6 +148,7 @@ python -m bodyscan_pipeline.api_server \
   --host 127.0.0.1 \
   --port 8000
 ```
+Có thể đặt các biến trên trong `alpha-scan/.env`; server tự nạp file này khi khởi động. Không đặt API key trong `frontend_lab`.
 Mở `http://127.0.0.1:8000/lab/` trên trình duyệt:
 * Chọn chế độ quét (**Dual Layer**, **Hi-Res Head** hoặc **Calibrated MHR**) và tải 4 ảnh toàn thân (Chính diện · Vai phải hướng về camera · Sau · Vai trái hướng về camera; mặc đồ tập sát form, tóc gọn lộ cổ–vai). *(Lưu ý: "Nghiêng phải/trái" luôn tính theo bên phải/trái của người mẫu, không tính theo mép phải/trái khung ảnh.)*
 * Khung 3D hỗ trợ xem lớp vỏ ngoài (`scan.glb`) hoặc chuyển sang lõi đo **Inner Core** (`scan_core.glb`), xoay **360°** / **Trước · Sau · Xoay**; cảnh báo `proportion_audit` và thiếu góc chụp hiển thị ngay cạnh kết quả.
@@ -176,7 +179,8 @@ Mở tunnel HTTPS (`cloudflared tunnel --url http://127.0.0.1:8000`) rồi sử 
 * **Khởi động không chặn (`/health` warmup):** Ở chế độ GPU, model SAM-3D-Body nạp nền để `/health` phản hồi ngay (`status: "loading"`, `model_ready: false`) trước khi sẵn sàng (`status: "ready"`, `model_ready: true`).
 
 #### Tóm tắt HTTP API (`api_server.py`)
-* `GET /health`: Trả `{ok, status ("loading"|"ready"|"error"), model_ready, mode, region_mode, test_only, pipeline_version, cuda_available, auth_required, queue_depth, backends}` *(kèm `error`, `detail` nếu lỗi)*.
+* `GET /health`: Trả `{ok, status ("loading"|"ready"|"error"), model_ready, mode, region_mode, test_only, pipeline_version, cuda_available, auth_required, queue_depth, backends, inbody_ocr}` *(kèm `error`, `detail` nếu lỗi)*. `inbody_ocr.enabled=true` xác nhận server đã nhận `OPENAI_API_KEY`, nhưng không lộ key.
+* `POST /api/v1/inbody/extract` *(multipart/form-data)*: Nhận một `file` (`PDF|JPG|JPEG|PNG`) và `consent_granted=true`; dùng cùng Bearer API key với API scan 3D. Mặc định gọi `gpt-5.6-luna`, hard-timeout 60 giây, không lưu tài liệu nguồn và trả `{ok, data, validation, flags, provider, model}` theo contract của modal InBody. Có thể đổi model bằng `OPENAI_INBODY_MODEL`, timeout bằng `INBODY_OCR_TIMEOUT_SECONDS`.
 * `POST /api/v1/bodyscan` *(multipart/form-data)*: Nhận `photos` (1–8 ảnh), `slot_roles` *(tuỳ chọn, chuỗi JSON mảng vai trò góc tương ứng thứ tự `photos`, ví dụ `'["front","right","back","left"]'`)*, `closeup_face` (tuỳ chọn), `height_cm`, `sex`, `weight_kg`, `person_id`, `privacy_level` (`1|2|3`), `consent_granted=true`, và `reconstruction_mode` (`calibrated_mhr` | `hi_res_head` | `dual_layer`, mặc định `dual_layer`; giá trị khác trả `422`). Với GPU API, texture tự động bật khi `privacy_level >= 2`. Trả `202` với `{job_id, status, progress, step}`.
 * `GET /api/v1/bodyscan/{job_id}`: Trả trạng thái job, `reconstruction_mode`, `effective_reconstruction_mode`, `proportion_audit`, `backends_used` (`segmentation`, `texture_rasterizer`, `moge2_depth_used`, `fitting_silhouette`), `warnings`, `body_scan`, và URL tải có chữ ký trong `artifacts` gồm `artifacts.mesh_url`, `artifacts.glb_url`, `artifacts.json_url`, tuỳ chọn `artifacts.core_mesh_url` *(chỉ xuất hiện ở chế độ `dual_layer`, trỏ tới `scan_core.glb`)*, và `artifacts.texture_url` *(trỏ tới `tex_blur.jpg` ở Mức 2 hoặc `tex_face.jpg` ở Mức 3; không có ở Mức 1)*.
 * `POST /api/v1/bodyscan/{job_id}/delete` *(hoặc `DELETE /api/v1/bodyscan/{job_id}`)*: Theo **Quyết định 3a**, xoá toàn bộ tệp `.glb` (kể cả **`scan_core.glb`**) và texture `.jpg` trên server khiến mọi yêu cầu tải tài sản 3D sau đó trả **`410 Gone`**, đồng thời giữ nguyên số đo `body_scan` (thêm `?purge_all=true` để xoá toàn bộ hồ sơ job).

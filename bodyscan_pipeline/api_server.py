@@ -28,10 +28,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from dotenv import load_dotenv
 from starlette.concurrency import run_in_threadpool
 
 from .config import DEFAULT_RECONSTRUCTION_MODE, PIPELINE_VERSION, RECONSTRUCTION_MODES
 from .exporter import secure_delete_files
+from .inbody_ocr import InBodyServiceError, OpenAIInBodyService
 from .scan_service import (
     BaseScanEngine,
     GpuScanEngine,
@@ -40,6 +42,8 @@ from .scan_service import (
     ScanResult,
     get_backend_capabilities,
 )
+
+load_dotenv()
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB per file
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -125,6 +129,10 @@ class ServerConfig:
     data_dir: str = ""
     cors_origins: List[str] = field(default_factory=lambda: ["*"])
     serve_frontend: Optional[str] = None
+    inbody_model: str = "gpt-5.6-luna"
+    inbody_timeout_seconds: float = 60.0
+    inbody_max_file_size_mb: int = 20
+    inbody_max_pdf_pages: int = 5
 
 
 @dataclass
@@ -949,6 +957,7 @@ def create_app(
     config: ServerConfig,
     engine: Optional[BaseScanEngine] = None,
     engine_loader: Optional[Callable[[], BaseScanEngine]] = None,
+    inbody_service: Optional[Any] = None,
 ) -> FastAPI:
     """Build and configure the FastAPI application."""
     if engine is None and engine_loader is None:
@@ -982,6 +991,13 @@ def create_app(
     app = FastAPI(title="Alpha Scan Plus/PRO API", version=PIPELINE_VERSION, lifespan=lifespan)
     app.state.scan_manager = manager
     app.state.config = config
+    app.state.inbody_ocr = inbody_service or OpenAIInBodyService(
+        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        model=config.inbody_model,
+        timeout_seconds=config.inbody_timeout_seconds,
+        max_file_size_mb=config.inbody_max_file_size_mb,
+        max_pdf_pages=config.inbody_max_pdf_pages,
+    )
 
     origins = config.cors_origins or ["*"]
     allow_all = origins == ["*"]
@@ -1021,11 +1037,38 @@ def create_app(
             "auth_required": bool(config.api_key),
             "queue_depth": manager.queue_depth(),
             "backends": backends,
+            "inbody_ocr": app.state.inbody_ocr.health(),
         }
         if eng_err:
             payload["error"] = eng_err
             payload["detail"] = eng_err
         return payload
+
+    @app.post("/api/v1/inbody/extract", dependencies=[Depends(require_auth)])
+    async def extract_inbody(
+        file: UploadFile = File(...),
+        consent_granted: str = Form("false"),
+    ) -> Dict[str, Any]:
+        """Extract one InBody report without persisting the source document."""
+        if not _parse_bool_form(consent_granted):
+            raise HTTPException(
+                status_code=403,
+                detail="Explicit client consent (consent_granted=true) is required.",
+            )
+        max_bytes = config.inbody_max_file_size_mb * 1024 * 1024
+        try:
+            raw = await file.read(max_bytes + 1)
+        finally:
+            await file.close()
+        if len(raw) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Uploaded document exceeds {config.inbody_max_file_size_mb} MB limit.",
+            )
+        try:
+            return await app.state.inbody_ocr.extract(raw, file.filename or "inbody-upload")
+        except InBodyServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     @app.post("/api/v1/bodyscan", status_code=202, dependencies=[Depends(require_auth)])
     async def create_bodyscan(
@@ -1191,6 +1234,26 @@ def _parse_args(argv: Optional[List[str]] = None) -> ServerConfig:
     parser.add_argument("--data-dir", type=str, default=os.environ.get("ALPHASCAN_DATA_DIR", ""))
     parser.add_argument("--cors-origins", type=str, default="*")
     parser.add_argument("--serve-frontend", type=str, default=None, help="Optional frontend dir mounted at /lab")
+    parser.add_argument(
+        "--inbody-model",
+        type=str,
+        default=os.environ.get("OPENAI_INBODY_MODEL", "gpt-5.6-luna"),
+    )
+    parser.add_argument(
+        "--inbody-timeout-seconds",
+        type=float,
+        default=float(os.environ.get("INBODY_OCR_TIMEOUT_SECONDS", "60")),
+    )
+    parser.add_argument(
+        "--inbody-max-file-size-mb",
+        type=int,
+        default=int(os.environ.get("INBODY_OCR_MAX_FILE_SIZE_MB", "20")),
+    )
+    parser.add_argument(
+        "--inbody-max-pdf-pages",
+        type=int,
+        default=int(os.environ.get("INBODY_OCR_MAX_PDF_PAGES", "5")),
+    )
     args = parser.parse_args(argv)
 
     origins = [o.strip() for o in args.cors_origins.split(",") if o.strip()] or ["*"]
@@ -1210,6 +1273,10 @@ def _parse_args(argv: Optional[List[str]] = None) -> ServerConfig:
         data_dir=args.data_dir,
         cors_origins=origins,
         serve_frontend=args.serve_frontend,
+        inbody_model=args.inbody_model,
+        inbody_timeout_seconds=args.inbody_timeout_seconds,
+        inbody_max_file_size_mb=args.inbody_max_file_size_mb,
+        inbody_max_pdf_pages=args.inbody_max_pdf_pages,
     )
 
 
