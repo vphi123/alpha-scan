@@ -228,7 +228,7 @@ const I18N={ vi:{
   ib_subtitle:'Enter exactly the numbers printed on the InBody sheet. The system does NOT overwrite with the US Navy estimate — the two sources are stored separately, each method-labelled.',
   ib_upload_h:'Upload InBody sheet (image/PDF) → auto-recognise (beta)',
   ib_choose:'Choose sheet image/PDF', ib_recognise:'Auto-recognise',
-  ib_ocr_default:'The sheet is saved with the profile as <b>source evidence</b>. Auto-recognise is <b>assist only (beta)</b> — you must verify every number before saving. For best accuracy use a backend reader (vision AI) or InBody data export.',
+  ib_ocr_default:'The original sheet is <b>not stored</b>. Auto-recognise is <b>assist only (beta)</b> — you must verify every number before saving.',
   ib_idkhoe_l:'KHOE ID (ONE Health)', ib_idclub_l:'Club ID', ib_idalm_l:'Alpha Management ID',
   ib_idkhoe_ph:'Phone / ONE Health ID', ib_idclub_ph:'Club code', ib_idalm_ph:'ALM code',
   ib_date_l:'InBody date', ib_model_l:'Device model',
@@ -357,7 +357,7 @@ const I18N={ vi:{
   ib_noclient:'Please create/identify a client first (Step 1).', ib_has_sheet:'(sheet already attached)',
   ib_req:'⚠ Missing required data: Weight + PBF. The system will not save when these are missing.', ib_pbf_range:'⚠ PBF out of valid range (3–70%). Please check.',
   ib_ocr_nofile:'No sheet image selected. Tap "Choose sheet image/PDF" first.',
-  ib_ocr_pdf:'PDF saved as evidence. Auto-recognise works with an <b>IMAGE (JPG/PNG)</b> — take a photo/screenshot of the sheet and upload it, or enter manually. (Accurate PDF reading should be done on the backend.)',
+  ib_ocr_pdf:'PDF is sent to the Alpha Scan server for extraction and is not stored after processing.',
   ib_ocr_loading:'Loading the recogniser & reading the sheet… (needs Internet the first time)',
   tg_forecast:'FORECAST', dm_forecast_sub:'Forecast when the goal is reached (AI)', dm_session:'Measurement', dm_goal_t:'InBody goal', dm_goal_weight:'Target weight', dm_goal_wfc:'Weight / fat / muscle',
   /* ---- AK core panel (Core) ---- */
@@ -712,7 +712,7 @@ document.addEventListener('DOMContentLoaded', applyLang);
         <input type="checkbox" id="ib_ai_consent" style="margin-top:2px">
         <span data-i18n="ib_ai_consent_l">Tôi đồng ý gửi <b>ảnh phiếu InBody</b> (dữ liệu sức khỏe) tới dịch vụ AI để trích số. Ảnh <b>chỉ xử lý tạm, không lưu</b>; chỉ số đã trích mới được giữ. (P0-01)</span>
       </label>
-      <div id="ib_ocrmsg" data-i18n="ib_ocr_default" style="font-size:11px;color:var(--mut);margin-top:6px;line-height:1.5"><b>Trích số bằng AI (vision):</b> chụp/tải phiếu → tích đồng ý → bấm <b>Trích số bằng AI</b>. Các ô <b>nền vàng</b> là do AI điền — <b>bắt buộc đối chiếu với phiếu</b> rồi mới lưu. Pilot: nên thử với phiếu mẫu (synthetic) trước khi dùng phiếu khách thật.</div>
+      <div id="ib_ocrmsg" data-i18n="ib_ocr_default" style="font-size:11px;color:var(--mut);margin-top:6px;line-height:1.5"><b>Trích số bằng AI (vision):</b> chụp/tải phiếu → tích đồng ý → bấm <b>Trích số bằng AI</b>. Phiếu gốc <b>không được lưu</b>. Các ô <b>nền vàng</b> là do AI điền — <b>bắt buộc đối chiếu với phiếu</b> rồi mới lưu.</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
       <div class="ik-f"><label data-i18n="ib_idkhoe_l">ID KHOẺ (ONE Health)</label><input class="ik-in" id="ib_idkhoe" data-i18n-ph="ib_idkhoe_ph" placeholder="SĐT / ONE Health ID"></div>
@@ -2202,22 +2202,29 @@ function initProgression(){
     document.querySelectorAll('.prog-mk').forEach(x=>x.classList.remove('on'));b.classList.add('on');progWk=+b.dataset.wk;renderProgScenarios();};
 }
 /* ===== Nhập InBody thủ công ===== */
-let __ibFile=null, __ibFileData=null, __ibFileType=null;
+let __ibFile=null, __ibFileData=null, __ibFileType=null, __ibFileName=null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('không tải được '+src)); document.head.appendChild(s); }); }
 async function ocrInBody(){ const msg=$('#ib_ocrmsg'); const EN=(LANG==='en');
   if(!__ibFile){ msg.textContent=t('ib_ocr_nofile','Chưa chọn ảnh phiếu. Bấm "Chọn ảnh/PDF phiếu" trước.'); return; }
   const cns=$('#ib_ai_consent');
   if(!cns||!cns.checked){ msg.innerHTML='⚠ '+t('ib_ocr_needconsent','Hãy tích ô đồng ý gửi ảnh phiếu tới dịch vụ AI để trích số (dữ liệu sức khỏe) trước.'); return; }
-  const base=(typeof AK==='object'&&AK.cfg&&AK.cfg.url)||''; const key=(typeof AK==='object'&&AK.cfg&&AK.cfg.anonKey)||'';
-  if(!base||!key){ msg.innerHTML='⚠ '+t('ib_ocr_nocore','Chưa nối lõi (URL/Key). Mở ⚙ Kết nối trước.'); return; }
+  const cfg=(window.AlphaPlusPro&&typeof AlphaPlusPro.loadCfg==='function')?AlphaPlusPro.loadCfg():{url:(location.origin||''),apiKey:''};
+  const base=String((cfg&&cfg.url)||'').replace(/\/$/,''); const key=String((cfg&&cfg.apiKey)||'');
+  if(!base){ msg.innerHTML='⚠ '+t('ib_ocr_nocore','Chưa cấu hình Server Alpha Scan. Mở ⚙ Kết nối → Server 3D Alpha Scan Plus/PRO.'); return; }
   msg.textContent=t('ib_ocr_sending','Đang gửi phiếu tới dịch vụ AI để trích số…');
+  const btn=$('#ib_ocr'); if(btn)btn.disabled=true;
+  const ctrl=new AbortController(), timer=setTimeout(()=>ctrl.abort(),65000);
   try{
-    const b64=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(__ibFile); });
-    const r=await fetch(base.replace(/\/$/,'')+'/functions/v1/parse_inbody',{ method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key,'apikey':key},
-      body:JSON.stringify({ image_base64:b64, mime_type:__ibFileType||'image/jpeg' }) });
+    const form=new FormData(); form.append('file',__ibFile,__ibFile.name||'inbody-upload'); form.append('consent_granted','true');
+    const headers={}; if(key)headers.Authorization='Bearer '+key;
+    if(/ngrok/i.test(base))headers['ngrok-skip-browser-warning']='true';
+    const r=await fetch(base+'/api/v1/inbody/extract',{method:'POST',headers:headers,body:form,signal:ctrl.signal});
     let j=null; try{ j=await r.json(); }catch(_){}
-    if(!j||!j.ok){ msg.innerHTML='⚠ '+t('ib_ocr_fail','Không trích được số')+': '+((j&&j.error)||('HTTP '+r.status))+'. '+t('ib_ocr_manual','Nhập tay, hoặc kiểm tra Edge Function parse_inbody đã deploy + đặt API key chưa.'); return; }
+    if(!r.ok||!j||!j.ok){
+      const detail=(j&&(j.detail||j.error))||('HTTP '+r.status);
+      const hint=r.status===401?'Kiểm tra API Key của Server Alpha Scan.':r.status===429?'OpenAI đã hết quota hoặc bị giới hạn tốc độ.':r.status===504?'OCR quá 60 giây; thử ảnh rõ hơn hoặc ảnh đã cắt sát phiếu.':r.status===503?'Server chưa cấu hình OPENAI_API_KEY hoặc dịch vụ AI đang gián đoạn.':'Kiểm tra file rồi thử lại hoặc nhập tay.';
+      msg.textContent='⚠ '+t('ib_ocr_fail','Không trích được số')+': '+detail+'. '+hint; return;
+    }
     const d=j.data||{};
     const mark=(id,v)=>{ const e=$('#'+id); if(!e)return; if(v!=null&&v!==''){ e.value=v;
       e.style.background='#fef9c3'; e.style.borderColor='#f59e0b'; e.dataset.ocr='1';
@@ -2231,11 +2238,13 @@ async function ocrInBody(){ const msg=$('#ib_ocrmsg'); const EN=(LANG==='en');
       const paint=(sel,v)=>{ const el=document.querySelector(sel); if(el&&v!=null&&v!==''){ el.value=v; el.style.background='#fef9c3'; el.style.borderColor='#f59e0b'; el.oninput=()=>{el.style.background='';el.style.borderColor='';el.oninput=null;}; } };
       paint('.ibseg[data-k="'+k+'"][data-i="0"]',s.lean_kg); paint('.ibseg[data-k="'+k+'"][data-i="1"]',s.fat_kg);
     });
-    const flagHtml=(j.flags&&j.flags.length)? '<br>⚠ '+j.flags.join('<br>⚠ ') : '';
+    const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const flagHtml=(j.flags&&j.flags.length)? '<br>⚠ '+j.flags.map(esc).join('<br>⚠ ') : '';
     msg.innerHTML=(EN
-      ? 'AI extracted the numbers (<b>yellow</b> fields) · '+(j.model||j.provider||'')+'. <b style="color:#b45309">Verify every number against the sheet before saving.</b>'
-      : 'AI đã trích số (ô <b>nền vàng</b>) · '+(j.model||j.provider||'')+'. <b style="color:#b45309">Đối chiếu từng số với phiếu trước khi lưu.</b>')+flagHtml;
-  }catch(e){ msg.innerHTML='⚠ '+(EN?'AI extract failed (':'Trích bằng AI thất bại (')+(e.message||e)+'). '+(EN?'Enter manually.':'Nhập tay.'); }
+      ? 'AI extracted the numbers (<b>yellow</b> fields). <b style="color:#b45309">Verify every number against the sheet before saving.</b>'
+      : 'AI đã trích số (ô <b>nền vàng</b>). <b style="color:#b45309">Đối chiếu từng số với phiếu trước khi lưu.</b>')+flagHtml;
+  }catch(e){ const why=e&&e.name==='AbortError'?(EN?'request exceeded 65 seconds':'yêu cầu vượt quá 65 giây'):(e.message||e); msg.textContent='⚠ '+(EN?'AI extract failed (':'Trích bằng AI thất bại (')+why+'). '+(EN?'Enter manually.':'Nhập tay.'); }
+  finally{ clearTimeout(timer); if(btn)btn.disabled=false; }
 }
 function openInBody(){ const c=SAFETY.client; if(!c){alert(t('ib_noclient','Hãy tạo/định danh khách trước (Bước 1).'));return;}
   const ib=CLIENT_INBODY||{}; const ids=(c.ids)||{};
@@ -2247,16 +2256,15 @@ function openInBody(){ const c=SAFETY.client; if(!c){alert(t('ib_noclient','Hãy
   $('#ib_smm').value=ib.smm||''; $('#ib_fat').value=ib.fat||''; $('#ib_visc').value=ib.visc||''; $('#ib_score').value=ib.score||'';
   document.querySelectorAll('.ibseg').forEach(inp=>{ const k=inp.dataset.k,i=+inp.dataset.i;
     inp.value=(ib.seg&&ib.seg[k]&&ib.seg[k][i]!=null)?ib.seg[k][i]:''; });
-  __ibFile=null; __ibFileData=ib.sourceFile||null; __ibFileType=ib.sourceType||null;
-  $('#ib_fname').textContent=ib.sourceFile?t('ib_has_sheet','(đã có phiếu đính kèm)'):'';
+  __ibFile=null; __ibFileData=null; __ibFileType=null; __ibFileName=ib.sourceName||null;
+  $('#ib_fname').textContent=ib.sourceName||'';
   $('#ib_msg').textContent=''; $('#inbodyModal').style.display='flex';
 }
 function initInBody(){
   const btn=$('#inbodyBtn'); if(btn)btn.onclick=openInBody;
-  const cl=$('#ib_close'); if(cl)cl.onclick=()=>$('#inbodyModal').style.display='none';
+  const cl=$('#ib_close'); if(cl)cl.onclick=()=>{__ibFile=null;__ibFileData=null;__ibFileType=null;__ibFileName=null;$('#inbodyModal').style.display='none';};
   const fin=$('#ib_file'); if(fin)fin.onchange=e=>{ const f=e.target.files[0]; if(!f)return;
-    __ibFile=f; __ibFileType=f.type; $('#ib_fname').textContent=f.name;
-    const rd=new FileReader(); rd.onload=()=>{__ibFileData=rd.result;}; rd.readAsDataURL(f); };
+    __ibFile=f; __ibFileType=f.type; __ibFileName=f.name; __ibFileData=null; $('#ib_fname').textContent=f.name; };
   const ocr=$('#ib_ocr'); if(ocr)ocr.onclick=ocrInBody;
   const sv=$('#ib_save'); if(sv)sv.onclick=()=>{
     const N=(typeof _n==='function')?_n:(x=>{const v=String(x==null?'':x).replace(',','.');return v===''||isNaN(+v)?null:+v;});
@@ -2277,12 +2285,13 @@ function initInBody(){
       visc:N($('#ib_visc').value),
       score:N($('#ib_score').value),
       seg:seg,
-      sourceFile:__ibFileData||null, sourceType:__ibFileType||null,   // phiếu gốc (bằng chứng nguồn)
+      sourceFile:null, sourceType:__ibFileType||null, sourceName:__ibFileName||null, // không lưu tài liệu sức khỏe gốc
       calculated_at:new Date().toISOString() };
     // lịch sử trong phiên: thay thế bản cùng ngày, hoặc thêm mới (sắp theo ngày)
     CLIENT_IB_HISTORY=CLIENT_IB_HISTORY.filter(x=>x.date!==CLIENT_INBODY.date);
     CLIENT_IB_HISTORY.push(CLIENT_INBODY);
     CLIENT_IB_HISTORY.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+    __ibFile=null; __ibFileData=null; __ibFileType=null; __ibFileName=null; if(fin)fin.value='';
     $('#inbodyModal').style.display='none';
     MEASURED=false;                          // không dùng SESSIONS demo — dùng CLIENT_INBODY
     renderLeft(); renderEstimatePlan();
