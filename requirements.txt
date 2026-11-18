@@ -1,0 +1,53 @@
+# Alpha Scan Body Scan v2 dependencies (License-compliant: NO ultralytics/yolo, smplx, nvdiffrast)
+numpy>=1.24
+scipy>=1.10
+trimesh>=4.0
+networkx>=3.0
+opencv-python-headless>=4.8
+pillow>=10.0
+matplotlib>=3.7
+huggingface_hub>=0.23
+pytorch-lightning
+pyrender
+yacs
+scikit-image
+einops
+timm
+dill
+pandas
+rich
+hydra-core
+hydra-submitit-launcher
+hydra-colorlog
+pyrootutils
+braceexpand
+webdataset
+roma
+joblib
+termcolor
+appdirs
+pycocotools
+fvcore
+iopath
+omegaconf
+cloudpickle
+tabulate
+xatlas
+gradio>=4.0
+# Facial landmarks & fallback person segmentation (Apache 2.0; mp.solutions + mp.tasks supported;
+# optional .task paths via ALPHASCAN_MP_SEGMENTER_TASK / ALPHASCAN_MP_FACE_LANDMARKER_TASK)
+# Note: mediapipe 0.10.x does not publish cp313 wheels; on Python >=3.13 OpenCV GrabCut/YCrCb fallback is active.
+mediapipe>=0.10.14,<0.11; python_version < "3.13"
+# Optional / Colab GPU packages (install separately per Colab/CUDA setup; CPU fallbacks exist when omitted):
+# - sam_3d_body (clone facebookresearch/sam-3d-body and add to PYTHONPATH / pip install -e .)
+# - detectron2 (ViTDet human detector used by sam_3d_body)
+# - moge (MoGe2 FOV + monocular depth estimator)
+# - sam2 (optional Meta SAM 2 human_segmentor, Apache 2.0; set ALPHASCAN_SAM2_CHECKPOINT if non-default)
+# - pytorch3d (prebuilt wheel on Colab/CUDA for differentiable fitting & rasterization; never use nvdiffrast)
+# - trimesh, xatlas (included above via PyPI wheels; NumPy/planar CPU fallbacks apply if omitted)
+
+# FastAPI / HTTP API server (Plan 2A)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+httpx>=0.27.0

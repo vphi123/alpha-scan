@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha Scan · Đo vòng bằng camera (POC)</title>
+<style>
+:root{
+  --bg:#F7F6F3; --card:#FFFFFF; --ink:#1D1F22; --muted:#6B6F76; --line:#E4E2DC;
+  --accent:#1F5E5B; --accent-soft:#E6F0EF; --warn:#9A5B00; --warn-soft:#FFF4E2;
+  --bad:#A33A2B; --bad-soft:#FBEAE7; --ok:#2E6B3A; --ok-soft:#E8F3EA;
+  --c-neck:#7A5AA6; --c-chest:#2C6FB0; --c-waist:#C2702E; --c-hip:#2E8A6A;
+  --dark:#121416;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+header h1{font-size:24px;margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+header p{margin:0;color:var(--muted)}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tag{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.tag.warn{border-color:#EBCB95;background:var(--warn-soft);color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:18px}
+.card h2{font-size:16px;margin:0 0 12px;font-weight:650}
+.card h2 .n{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;text-align:center;line-height:22px;margin-right:8px;vertical-align:1px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted);margin-top:6px}
+button{font:inherit;border-radius:10px;padding:10px 16px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.stage{background:var(--dark);border-radius:12px;margin-top:14px;min-height:240px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.stage video,.stage canvas{max-width:100%;max-height:520px;display:block}
+.stage .empty{color:#8C9096;font-size:14px;padding:30px;text-align:center}
+.rec{position:absolute;top:12px;left:12px;color:#fff;background:rgba(163,58,43,.9);padding:4px 10px;border-radius:8px;font-size:13px;display:none}
+.count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:96px;color:#fff;font-weight:700;background:rgba(0,0,0,.25)}
+.guide{margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13.5px}
+.guide li{margin:2px 0}
+.consent{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#FBFAF8;font-size:14px}
+.consent ul{margin:6px 0 10px;padding-left:18px}
+.consent label{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14px;margin:0}
+.consent input{width:auto;margin-top:4px}
+.progress{height:6px;background:var(--line);border-radius:9px;overflow:hidden;margin-top:12px;display:none}
+.progress div{height:100%;width:0;background:var(--accent);transition:width .15s}
+.status{font-size:13.5px;color:var(--muted);margin-top:8px;min-height:20px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:600;color:var(--muted);font-size:12.5px}
+td .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}
+.num{font-variant-numeric:tabular-nums}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi .v{font-size:24px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--muted)}
+.kpi.main{border-color:var(--accent);background:var(--accent-soft)}
+.msgs{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.msg{font-size:13.5px;padding:8px 12px;border-radius:9px}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.msg.bad{background:var(--bad-soft);color:var(--bad)}
+.msg.ok{background:var(--ok-soft);color:var(--ok)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.charts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:760px){.charts{grid-template-columns:1fr 1fr}}
+.charts canvas{width:100%;height:120px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.vwrap{position:relative;width:100%;height:520px;border-radius:12px;overflow:hidden;background:linear-gradient(#1A1D20,#0E1012)}
+@media(max-width:760px){.vwrap{height:460px}}
+.vwrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#viewer{cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.panel{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px;background:#FBFAF8}
+.sl{margin:8px 0 12px}
+.slh{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}
+.sl input[type=range]{padding:0;border:0;accent-color:var(--accent);height:28px}
+details summary{cursor:pointer;font-weight:600}
+pre{background:#F2F1EE;border-radius:10px;padding:12px;font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
+.hidden{display:none!important}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:11px;padding:3px;background:#F2F1EE;margin-bottom:14px}
+.tabs button{border:0;background:transparent;padding:8px 16px;border-radius:8px;color:var(--muted)}
+.tabs button.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+@media(max-width:760px){.slots{grid-template-columns:repeat(2,1fr)}}
+.slot{border:1px dashed #C9C6BE;border-radius:12px;background:#FBFAF8;padding:10px;text-align:center;cursor:pointer;position:relative}
+.slot.has{border-style:solid;border-color:var(--accent)}
+.slot .ttl{font-weight:600;font-size:14px}
+.slot .sub{font-size:12px;color:var(--muted)}
+.slot .ph{height:150px;margin-top:8px;border-radius:8px;background:#ECEAE5 center/contain no-repeat;display:flex;align-items:center;justify-content:center;color:#9A968D;font-size:12.5px}
+.slot .x{position:absolute;top:6px;right:6px;padding:2px 8px;font-size:12px;border-radius:7px}
+.feet{display:flex;gap:16px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.feet svg{flex:none}
+.small{font-size:12.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="row hidden" id="embedBar" style="justify-content:space-between;margin-bottom:10px">
+    <button id="btnBack">Quay lại Alpha Scan</button>
+    <span class="small" id="embedWho"></span>
+  </div>
+  <h1>Alpha Scan · Đo vòng bằng camera</h1>
+  <p>Bản thử nghiệm (POC — proof of concept, bản chứng minh khả thi): đo vòng cổ, ngực, eo, hông từ một video xoay 360° hoặc 4 ảnh, và ước tính % mỡ theo công thức US Navy. Không cần trục xoay hay thiết bị riêng.</p>
+  <div class="tags">
+    <span class="tag warn">Thử nghiệm nội bộ, chưa kiểm chứng (validation)</span>
+    <span class="tag">Video/ảnh xử lý ngay trên máy này, không gửi đi đâu</span>
+    <span class="tag">Sàng lọc wellness, không phải chẩn đoán y khoa</span>
+  </div>
+</header>
+
+<section class="card" id="profileCard">
+  <h2><span class="n">1</span>Thông tin người đo</h2>
+  <div class="grid">
+    <div><label for="sex">Giới tính</label><select id="sex"><option value="female">Nữ</option><option value="male">Nam</option></select></div>
+    <div><label for="height">Chiều cao (cm) *</label><input id="height" inputmode="decimal" placeholder="vd 162"></div>
+    <div><label for="weight">Cân nặng (kg)</label><input id="weight" inputmode="decimal" placeholder="không bắt buộc"></div>
+    <div><label for="age">Tuổi</label><input id="age" inputmode="numeric" placeholder="không bắt buộc"></div>
+    <div><label for="inbody">% mỡ InBody (nếu có)</label><input id="inbody" inputmode="decimal" placeholder="để đối chiếu"></div>
+  </div>
+  <div class="hint">Chiều cao là thước đo gốc: mọi số đo được quy đổi theo chiều cao, nên phải nhập chính xác. Có thể gõ dấu phẩy (72,5).</div>
+</section>
+
+<section class="card">
+  <h2><span class="n">2</span>Hình ảnh người đo</h2>
+  <div class="tabs" role="tablist">
+    <button id="tabVideo" class="on" role="tab">Video xoay 360°</button>
+    <button id="tabPhotos" role="tab">4 ảnh</button>
+  </div>
+  <div id="modePhotos" class="hidden">
+    <div class="feet">
+      <svg width="120" height="120" viewBox="0 0 120 120" aria-label="Sơ đồ 4 hướng đứng">
+        <circle cx="60" cy="60" r="44" fill="none" stroke="#C9C6BE" stroke-dasharray="3 4"/>
+        <rect x="52" y="104" width="16" height="12" rx="3" fill="#1F5E5B"/><text x="60" y="100" font-size="9" text-anchor="middle" fill="#6B6F76">camera</text>
+        <g font-size="10" fill="#1D1F22" text-anchor="middle"><text x="60" y="80">1 Trước</text><text x="94" y="63">2 Phải</text><text x="60" y="46">3 Sau</text><text x="26" y="63">4 Trái</text></g>
+        <path d="M60 52 l-4 6 h8z" fill="#1F5E5B"/>
+      </svg>
+      <ul class="guide" style="margin:0;flex:1;min-width:240px">
+        <li>Camera cố định trên chân máy (ngang hông, dựng thẳng, cách 2,5–3 m). <b>Người đo xoay, camera không di chuyển.</b></li>
+        <li>Dán dấu bàn chân trên sàn cho 4 hướng, mỗi lần xoay đúng <b>90°</b>. Lệch quá 12° phần mềm sẽ cảnh báo.</li>
+        <li><b>Dang tay chữ T hoặc chữ A</b> (chếch 30–45°) ở cả 4 ảnh. Tay buông xuôi sẽ che mép eo và hông.</li>
+        <li>Thấy trọn từ đỉnh đầu tới bàn chân. Tối thiểu cần 1 ảnh chính diện + 1 ảnh nghiêng; nên chụp đủ 4.</li>
+      </ul>
+    </div>
+    <div class="slots" id="slots"></div>
+  </div>
+  <div id="modeVideo">
+  <div class="row">
+    <button id="btnPick">Chọn video có sẵn</button>
+    <input id="file" type="file" accept="video/*" class="hidden">
+    <button id="btnCam">Quay bằng camera (12 giây)</button>
+    <button id="btnStopCam" class="hidden">Huỷ quay</button>
+    <span id="fileName" class="small"></span>
+  </div>
+  <ul class="guide">
+    <li>Điện thoại đặt trên chân máy (tripod), <b>ngang hông, dựng thẳng, cách 2,5–3 m</b>. Thấy trọn từ đỉnh đầu tới bàn chân trong suốt video.</li>
+    <li>Người đo <b>dang tay chữ T (T-pose)</b>, mặc đồ ôm sát, buộc tóc gọn, đi chân trần, đứng trước nền trơn.</li>
+    <li>Xoay tại chỗ <b>một vòng đều, chậm, khoảng 10–12 giây</b>. Không bước tới gần hay lùi xa camera.</li>
+  </ul>
+  </div>
+  <div class="stage" id="stage">
+    <div class="empty" id="stageEmpty">Chưa có video</div>
+    <video id="video" class="hidden" playsinline muted></video>
+    <video id="live" class="hidden" playsinline muted autoplay></video>
+    <canvas id="preview" class="hidden"></canvas>
+    <div class="rec" id="recBadge">Đang quay</div>
+    <div class="count" id="countdown"></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2><span class="n">3</span>Đồng ý và phân tích</h2>
+  <div class="consent">
+    <b>Đồng ý xử lý hình ảnh cơ thể (video hoặc ảnh)</b>
+    <ul>
+      <li>Video và ảnh toàn thân là <b>dữ liệu sức khoẻ, thuộc nhóm dữ liệu cá nhân nhạy cảm</b>.</li>
+      <li>Video và ảnh chỉ được xử lý ngay trên thiết bị này. <b>Không tải lên máy chủ, không lưu lại</b>; đóng trang là chúng mất.</li>
+      <li>Điểm khuôn mặt chỉ dùng tạm để xác định vị trí cổ, <b>không ghi vào kết quả</b>.</li>
+      <li>Kết quả là <b>ước tính phục vụ theo dõi tập luyện, không phải chẩn đoán hay điều trị y khoa</b>.</li>
+    </ul>
+    <label><input type="checkbox" id="consent"> Tôi (người được đo) đã đọc và đồng ý.</label>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button class="primary" id="btnRun" disabled>Phân tích</button>
+    <span class="small" id="runHint">Cần: chiều cao, video và đánh dấu đồng ý.</span>
+  </div>
+  <div class="progress" id="progress"><div></div></div>
+  <div class="status" id="status"></div>
+</section>
+
+<section class="card hidden" id="resultCard">
+  <h2><span class="n">4</span>Kết quả</h2>
+  <div class="kpis" id="kpis"></div>
+  <div class="msgs" id="msgs"></div>
+  <div style="overflow-x:auto;margin-top:16px">
+    <table id="tbl"></table>
+  </div>
+  <div class="hint" id="tblHint"></div>
+  <div class="row hidden" id="useRow" style="margin-top:16px">
+    <button class="primary" id="btnUse" disabled>Dùng số đo này cho Body Scan</button>
+    <span class="small" id="useHint"></span>
+  </div>
+</section>
+
+<section class="card hidden" id="calCard">
+  <h2><span class="n">5</span>Hiệu chuẩn và đối chiếu thước dây</h2>
+  <p class="small" style="margin-top:0">Số đo thô từ camera thường lệch đều một tỉ lệ (do viền bóng người và phối cảnh camera). Nhập <b>một</b> số đo thước thật làm mốc (calibration anchor, mốc hiệu chuẩn) để quy đổi tất cả; mỗi người chỉ cần làm một lần. Nhập thêm các vòng khác để xem camera lệch bao nhiêu so với thước. Kết quả cập nhật ngay, không cần phân tích lại.</p>
+  <div class="grid">
+    <div><label for="t_neck">Thước: cổ (cm)</label><input id="t_neck" inputmode="decimal"></div>
+    <div><label for="t_chest">Thước: ngực (cm)</label><input id="t_chest" inputmode="decimal"></div>
+    <div><label for="t_waist">Thước: eo (cm)</label><input id="t_waist" inputmode="decimal"></div>
+    <div><label for="t_hip">Thước: hông (cm)</label><input id="t_hip" inputmode="decimal"></div>
+    <div><label for="anchor">Mốc hiệu chuẩn</label>
+      <select id="anchor"><option value="">Không dùng (hệ số chung)</option><option value="waist">Eo</option><option value="hip">Hông</option><option value="chest">Ngực</option><option value="neck">Cổ</option></select></div>
+  </div>
+  <div class="hint">Đo thước theo chuẩn Navy: cổ ngay dưới yết hầu; eo nam ngang rốn, eo nữ chỗ nhỏ nhất; hông chỗ mông to nhất. Thước sát da, không siết.</div>
+</section>
+
+<section class="card hidden" id="vizCard">
+  <h2><span class="n">6</span>Hình nhân 3D</h2>
+  <div class="row" style="margin-bottom:10px">
+    <div class="tabs" style="margin:0"><button id="vm_cur" class="on">Hiện tại</button><button id="vm_target">So với mục tiêu</button><button id="vm_prev">So với lần trước</button></div>
+    <button id="vReset">Đặt lại góc nhìn</button>
+    <button id="vAuto">Tự xoay: bật</button>
+    <label style="display:flex;gap:6px;align-items:center;margin:0;color:var(--ink);font-size:14px"><input type="checkbox" id="vRings" checked style="width:auto"> Hiện vòng đo</label>
+    <select id="vKind" style="width:auto"><option value="nguoi">Hình người</option><option value="anny">Hình nhân (Anny)</option></select>
+  </div>
+  <div class="vwrap"><canvas id="viewerGL"></canvas><canvas id="viewer"></canvas></div>
+  <div class="small" id="fitInfo" style="margin-top:6px"></div>
+  <div class="hint">Điện thoại: vuốt một ngón để xoay, chụm hoặc mở hai ngón để thu nhỏ/phóng to và kéo hai ngón để di chuyển. Máy tính: kéo chuột để xoay, cuộn chuột để phóng to, bấm đúp để đặt lại. Hình nhân được khớp theo bề ngang và bề dày đo được ở cổ, ngực, eo, hông và đùi. Tay, cẳng chân và đầu ước theo dáng tổng thể (chưa đo trực tiếp). Khuôn mặt là mặt mẫu chung, không phải mặt của khách. Đây là hình bề ngoài, <b>không phải mô hình giải phẫu cơ/mỡ</b>. Hình người dựng từ mẫu bề mặt Innerscene (CC0 1.0).</div>
+
+  <div id="targetPanel" class="panel hidden">
+    <div class="row" style="justify-content:space-between"><b>Đặt vòng mục tiêu</b><button id="btnTargetReset">Về số đo hiện tại</button></div>
+    <div id="sliders"></div>
+    <div id="targetOut" class="small" style="color:var(--ink)"></div>
+    <div class="msgs"><div class="msg warn">Đây là hình minh hoạ khi các vòng đạt số đo mục tiêu, dùng để đặt mục tiêu cùng HLV. <b>Không phải dự đoán kết quả tập luyện</b>; % mỡ mục tiêu là ước tính theo công thức Navy.</div></div>
+  </div>
+
+  <div id="prevPanel" class="panel hidden">
+    <div class="row"><button id="btnPrev">Chọn file JSON lần đo trước</button><input type="file" id="prevFile" accept="application/json,.json" class="hidden"><span class="small" id="prevName"></span></div>
+    <div class="msgs" id="prevMsgs"><div class="msg warn">Chọn file JSON đã tải về từ một lần đo trước của cùng người này.</div></div>
+    <div style="overflow-x:auto;margin-top:8px"><table id="prevTbl"></table></div>
+    <p class="small">Bảng chỉ ghi chênh lệch số đo, không tự kết luận tốt hay xấu. Việc đánh giá thuộc về HLV.</p>
+  </div>
+
+  <h3 style="font-size:14px;margin:20px 0 8px">Kiểm tra chất lượng đo</h3>
+  <div class="charts" id="charts"></div>
+  <div class="hint" id="chartHint"></div>
+</section>
+
+<section class="card hidden" id="exportCard">
+  <h2><span class="n">7</span>Xuất kết quả</h2>
+  <div class="row">
+    <button id="btnDl">Tải file JSON</button>
+    <button id="btnCopy">Sao chép JSON</button>
+    <span class="small" id="copyMsg"></span>
+  </div>
+  <p class="small">File chỉ gồm số đo và thông tin kiểm tra chất lượng. Không có video, ảnh, mặt nạ bóng người hay điểm khuôn mặt. Chưa ghi lên máy chủ (LOCAL_ONLY, chỉ lưu cục bộ).</p>
+  <details><summary class="small">Xem nội dung JSON</summary><pre id="jsonOut"></pre></details>
+</section>
+
+<section class="card">
+  <details>
+    <summary>Cài đặt nâng cao</summary>
+    <p class="small">Các giá trị dưới đây lưu trên trình duyệt này và sửa được về sau khi có số liệu kiểm chứng.</p>
+    <div class="grid">
+      <div><label for="cfg_k">Hệ số hiệu chuẩn chung (k)</label><input id="cfg_k" inputmode="decimal"></div>
+      <div><label for="cfg_chest">Tỉ lệ chiều cao: ngực</label><input id="cfg_chest" inputmode="decimal"></div>
+      <div><label for="cfg_waist">Tỉ lệ chiều cao: eo</label><input id="cfg_waist" inputmode="decimal"></div>
+      <div><label for="cfg_hip">Tỉ lệ chiều cao: hông</label><input id="cfg_hip" inputmode="decimal"></div>
+      <div><label for="cfg_neck">Tỉ lệ chiều cao: cổ (dự phòng)</label><input id="cfg_neck" inputmode="decimal"></div>
+      <div><label for="cfg_level">Cách chọn vị trí đo</label><select id="cfg_level"><option value="auto">Tự tìm theo dáng người</option><option value="fixed">Tỉ lệ cố định ở trên</option></select></div>
+      <div><label for="cfg_navel">Eo nam ngang rốn: tỉ lệ từ khớp hông tới khớp vai</label><input id="cfg_navel" inputmode="decimal"></div>
+      <div><label for="cfg_offM">Hiệu chỉnh % mỡ Navy, nam (điểm %)</label><input id="cfg_offM" inputmode="decimal"></div>
+      <div><label for="cfg_offF">Hiệu chỉnh % mỡ Navy, nữ (điểm %)</label><input id="cfg_offF" inputmode="decimal"></div>
+      <div><label for="cfg_step">Khoảng lấy khung (giây)</label><input id="cfg_step" inputmode="decimal"></div>
+      <div><label for="cfg_res">Độ phân giải xử lý (px chiều cao)</label><input id="cfg_res" inputmode="numeric"></div>
+      <div><label for="cfg_deleg">Bộ xử lý (delegate)</label><select id="cfg_deleg"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></div>
+    </div>
+    <div class="grid" style="margin-top:12px;grid-template-columns:1fr">
+      <div><label for="cfg_mp">Địa chỉ thư viện MediaPipe tasks-vision</label><input id="cfg_mp"></div>
+      <div><label for="cfg_model">Địa chỉ model pose_landmarker</label><input id="cfg_model"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button id="btnSaveCfg">Lưu cài đặt</button><button id="btnResetCfg">Về mặc định</button><span class="small" id="cfgMsg"></span></div>
+    <p class="hint">Hiệu chỉnh % mỡ Navy: để 0 cho tới khi có kết quả so với InBody/DEXA trên 20–30 người. Khi đó lấy trung bình (chuẩn đối chiếu − Navy) riêng cho nam và nữ điền vào đây; Mr. Kelly ký trước khi đổi.</p>
+    <p class="hint">Hệ số k: để 1,00 cho tới khi có kết quả kiểm chứng trên 20–30 người. Khi đó lấy trung bình (thước ÷ video) của nhóm điền vào đây để bỏ bước hiệu chuẩn từng người. Tỉ lệ chiều cao tính từ gót chân lên (0,58 = 58% chiều cao).</p>
+  </details>
+</section>
+
+<section class="card">
+  <details>
+    <summary>Cách tính và giới hạn</summary>
+    <ol class="small">
+      <li>Lấy khoảng 100 khung hình trong video. Mỗi khung chạy MediaPipe Pose Landmarker để có bóng người (segmentation mask) và 33 điểm cơ thể.</li>
+      <li>Làm sạch bóng người bằng phép mở/đóng hình thái học (morphological open/close) 5×5.</li>
+      <li>Ở mỗi độ cao (ngực 68%, eo 58%, hông 50% chiều cao; cổ lấy giữa vai và miệng), đo bề rộng bóng người rồi chia cho chiều cao bóng người trong khung đó.</li>
+      <li>Qua một vòng xoay: phân vị 90 ≈ bề ngang thân, phân vị 10 ≈ bề dày thân. Coi lát cắt là elip, tính chu vi theo công thức Ramanujan.</li>
+      <li>Chế độ 4 ảnh: bề ngang lấy trung bình ảnh trước và sau, bề dày lấy trung bình hai ảnh nghiêng, rồi tính chu vi elip như trên. Góc lệch của ảnh nghiêng ước lượng từ độ rộng vai so với ảnh chính diện.</li>
+      <li>% mỡ: công thức US Navy hệ mét (Hodgdon &amp; Beckett), giống App Khoẻ. Deurenberg chỉ để đối chiếu, lập từ dữ liệu người châu Âu.</li>
+    </ol>
+    <p class="small">Hình nhân chi tiết dùng dữ liệu dẫn xuất từ mô hình Anny (© 2025 NAVER Corp., giấy phép Apache 2.0) và tài sản MakeHuman (CC0 1.0). Xem file LICENSE-Anny.txt đi kèm.</p>
+    <p class="small">Giới hạn: phương pháp gốc (repo body-scan-smplx) mới kiểm trên 1 người. Chưa có hiệu chuẩn thì số đo có thể lệch đều 10–15%. Lát cắt elip không mô tả được bụng phẳng hay lưng cong. Quần áo rộng, nền rối, camera gần hoặc nghiêng đều làm sai số tăng. Mỗi 1 cm sai ở eo hoặc hông làm % mỡ Navy lệch khoảng 0,5–0,6 điểm. Không có đo tay, chân trong bản này.</p>
+  </details>
+</section>
+</div>
+
+<script id="vd-engine">
+/* ===== VongDo engine: thuần tính toán, không phụ thuộc DOM (kiểm thử được trong Node) ===== */
+var VD = (function(){
+  var VERSION = 'vongdo-0.5.0-poc';
+  var PARTS = ['neck','chest','waist','hip'];
+  var DEFAULT_CFG = {
+    ratios:{neck:0.845, chest:0.68, waist:0.58, hip:0.50},
+    globalK:1.0, frameStep:0.1, procHeight:720, photoHeight:1024, maxFrames:180,
+    bandFrac:0.005, minPartFrames:10, minValidFrames:20, loftStep:0.01,
+    levelMode:'auto', navelFrac:0.27, navyOffsetMale:0, navyOffsetFemale:0,
+    delegate:'GPU',
+    mpBase:'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/',
+    modelUrl:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task'
+  };
+
+  function soVN(v){
+    if (v === null || v === undefined) return NaN;
+    var s = String(v).trim().replace(/\s/g,'').replace(',', '.');
+    if (s === '') return NaN;
+    var n = Number(s);
+    return isFinite(n) ? n : NaN;
+  }
+
+  // Lọc hình thái học tách được (separable), cửa sổ vuông (2r+1)
+  function pass1(src, dst, w, h, r, isMax, horiz){
+    var x, y, k, v, xx, yy, s;
+    for (y = 0; y < h; y++){
+      for (x = 0; x < w; x++){
+        v = isMax ? 0 : 1;
+        for (k = -r; k <= r; k++){
+          if (horiz){ xx = x + k; s = (xx < 0 || xx >= w) ? 0 : src[y*w + xx]; }
+          else { yy = y + k; s = (yy < 0 || yy >= h) ? 0 : src[yy*w + x]; }
+          if (isMax){ if (s){ v = 1; break; } } else { if (!s){ v = 0; break; } }
+        }
+        dst[y*w + x] = v;
+      }
+    }
+  }
+  function dilate(a, w, h, r){ var t = new Uint8Array(w*h), o = new Uint8Array(w*h); pass1(a,t,w,h,r,true,true); pass1(t,o,w,h,r,true,false); return o; }
+  function erode(a, w, h, r){ var t = new Uint8Array(w*h), o = new Uint8Array(w*h); pass1(a,t,w,h,r,false,true); pass1(t,o,w,h,r,false,false); return o; }
+  function morph(bin, w, h, r){
+    r = r || 2;
+    var opened = dilate(erode(bin,w,h,r),w,h,r);
+    return erode(dilate(opened,w,h,r),w,h,r);
+  }
+
+  function bounds(bin, w, h){
+    var top = -1, bottom = -1, y, x, c;
+    for (y = 0; y < h; y++){ c = 0; for (x = 0; x < w; x++) c += bin[y*w+x]; if (c >= 2){ top = y; break; } }
+    for (y = h-1; y >= 0; y--){ c = 0; for (x = 0; x < w; x++) c += bin[y*w+x]; if (c >= 2){ bottom = y; break; } }
+    return {top:top, bottom:bottom};
+  }
+
+  // Đoạn liền chứa (hoặc gần nhất với) cx trên hàng y
+  function runAt(bin, w, y, cx, maxGap){
+    cx = Math.max(0, Math.min(w-1, Math.round(cx)));
+    var o = y*w, start = -1, d;
+    if (bin[o+cx]) start = cx;
+    else {
+      for (d = 1; d <= maxGap; d++){
+        if (cx-d >= 0 && bin[o+cx-d]){ start = cx-d; break; }
+        if (cx+d < w && bin[o+cx+d]){ start = cx+d; break; }
+      }
+    }
+    if (start < 0) return 0;
+    var l = start, r = start;
+    while (l > 0 && bin[o+l-1]) l--;
+    while (r < w-1 && bin[o+r+1]) r++;
+    return r - l + 1;
+  }
+  function extentAt(bin, w, y){
+    var o = y*w, l = -1, r = -1, x;
+    for (x = 0; x < w; x++) if (bin[o+x]){ l = x; break; }
+    if (l < 0) return 0;
+    for (x = w-1; x >= 0; x--) if (bin[o+x]){ r = x; break; }
+    return r - l + 1;
+  }
+  function median(a){ if (!a.length) return NaN; var s = a.slice().sort(function(p,q){return p-q;}); var m = s.length>>1; return s.length%2 ? s[m] : (s[m-1]+s[m])/2; }
+  function percentile(a, p){
+    if (!a.length) return NaN;
+    var s = a.slice().sort(function(x,y){return x-y;});
+    var i = (s.length-1)*p, lo = Math.floor(i), hi = Math.ceil(i);
+    return s[lo] + (s[hi]-s[lo])*(i-lo);
+  }
+  function ellipsePerimeter(width, depth){
+    var a = width/2, b = depth/2;
+    return Math.PI * (3*(a+b) - Math.sqrt((3*a+b)*(a+3*b)));
+  }
+  function good(p){ return p && (p.visibility === undefined || p.visibility > 0.3); }
+
+  // Phân tích một khung: bin = mặt nạ 0/1 (w×h), lm = 33 điểm chuẩn hoá (có thể null)
+  function analyzeFrame(bin, w, h, lm, cfg){
+    cfg = cfg || DEFAULT_CFG;
+    var b = bounds(bin, w, h);
+    var out = {valid:false, reason:null, top:b.top, bottom:b.bottom, Hpx:0, rows:{}, parts:{}, loft:[]};
+    if (b.top < 0){ out.reason = 'no_person'; return out; }
+    var Hpx = b.bottom - b.top + 1; out.Hpx = Hpx;
+    if (Hpx < 0.3*h){ out.reason = 'too_small'; return out; }
+    if (b.top <= 1 || b.bottom >= h-2){ out.reason = 'cut_off'; return out; }
+
+    // Tâm thân: giữa hai hông nếu có điểm, không thì trọng tâm cột vùng thân
+    var cx = NaN, x, y;
+    if (lm && good(lm[23]) && good(lm[24])) cx = (lm[23].x + lm[24].x)/2 * w;
+    if (!(cx >= 0 && cx < w)){
+      var sx = 0, sn = 0, y0 = Math.round(b.bottom - 0.65*Hpx), y1 = Math.round(b.bottom - 0.45*Hpx);
+      for (y = y0; y <= y1; y++) for (x = 0; x < w; x++) if (bin[y*w+x]){ sx += x; sn++; }
+      cx = sn ? sx/sn : w/2;
+    }
+    var maxGap = Math.round(0.04*w);
+    var band = Math.max(1, Math.round(cfg.bandFrac*Hpx));
+    function yOf(r){ return Math.round(b.bottom - r*(Hpx-1)); }
+    function bandRun(yc, c){
+      var v = [], k, yy, L;
+      for (k = -band; k <= band; k++){ yy = yc + k; if (yy < 0 || yy >= h) continue; L = runAt(bin, w, yy, c, maxGap); if (L > 0) v.push(L); }
+      return v.length ? median(v) : 0;
+    }
+
+    // Cổ: giữa vai và miệng/tai (dùng tạm điểm mặt, không lưu)
+    var neckY = NaN, neckCx = cx, neckSrc = 'ratio';
+    if (lm && good(lm[11]) && good(lm[12])){
+      var shY = (lm[11].y + lm[12].y)/2 * h, headY = NaN;
+      if (good(lm[9]) && good(lm[10])) headY = (lm[9].y + lm[10].y)/2 * h;
+      else if (good(lm[7]) && good(lm[8])) headY = (lm[7].y + lm[8].y)/2 * h;
+      if (headY < shY){ neckY = Math.round(shY - 0.5*(shY - headY)); neckCx = (lm[11].x + lm[12].x)/2 * w; neckSrc = 'landmarks'; }
+    }
+    if (!(neckY > b.top && neckY < b.bottom)){ neckY = yOf(cfg.ratios.neck); neckSrc = 'ratio'; }
+    out.neckSource = neckSrc;
+
+    var specs = {
+      neck:{y:neckY, c:neckCx, max:0.12},
+      chest:{y:yOf(cfg.ratios.chest), c:cx, max:0.45},
+      waist:{y:yOf(cfg.ratios.waist), c:cx, max:0.45},
+      hip:{y:yOf(cfg.ratios.hip), c:cx, max:0.45}
+    };
+    PARTS.forEach(function(p){
+      var s = specs[p], L = bandRun(s.y, s.c), ratio = L / Hpx;
+      out.rows[p] = s.y;
+      out.parts[p] = (L > 0 && ratio <= s.max) ? ratio : null;
+    });
+
+    // Lát cắt cho hình khối 3D
+    for (var r = cfg.loftStep; r < 0.999; r += cfg.loftStep){
+      var yy = yOf(r), L2;
+      if (r < 0.47) L2 = extentAt(bin, w, yy);
+      else {
+        var lv = [], kk2;
+        for (kk2 = -band; kk2 <= band; kk2++){ var y3 = yy + kk2; if (y3 < 0 || y3 >= h) continue; var L3 = runAt(bin, w, y3, r > 0.84 ? neckCx : cx, maxGap); if (L3 > 0) lv.push(L3); }
+        L2 = lv.length ? median(lv) : 0;
+      }
+      var rr = L2 / Hpx;
+      if (r >= 0.74 && r <= 0.86 && rr > 0.3) rr = null; // vùng tay dang ngang
+      out.loft.push({r: +r.toFixed(3), v: (L2 > 0 ? rr : null)});
+    }
+    // Chỉ số tư thế chụp (tỉ lệ, không lưu điểm mốc): độ rộng vai, độ dang tay
+    out.meta = {shoulderSpread:null, wristSpread:null};
+    // Mốc khớp hông và khớp vai theo tỉ lệ chiều cao (tính từ gót chân), chỉ dùng để tìm vị trí đo
+    out.lmr = null;
+    if (lm && good(lm[23]) && good(lm[24]) && good(lm[11]) && good(lm[12])){
+      var hy = (lm[23].y + lm[24].y)/2*h, sy2 = (lm[11].y + lm[12].y)/2*h;
+      out.lmr = {hipJ:(b.bottom - hy)/(Hpx - 1), sh:(b.bottom - sy2)/(Hpx - 1)};
+    }
+    if (lm && good(lm[11]) && good(lm[12])) out.meta.shoulderSpread = Math.abs(lm[11].x - lm[12].x) * w / Hpx;
+    if (lm && good(lm[15]) && good(lm[16])) out.meta.wristSpread = Math.abs(lm[15].x - lm[16].x) * w / Hpx;
+    out.valid = true;
+    return out;
+  }
+
+  // ===== Tự tìm vị trí đo ngực/eo/hông cho từng người (thay tỉ lệ cố định) =====
+  // loft: [{r,w,d}] (cm), lmr: {hipJ, sh} tỉ lệ chiều cao của khớp hông/khớp vai
+  function detectLevels(loft, lmr, sex, cfg){
+    var lv = {mode:'fixed', hipJ:null, sh:null};
+    ['chest','waist','hip'].forEach(function(p){ lv[p] = {r:cfg.ratios[p], src:'fixed'}; });
+    if (cfg.levelMode !== 'auto' || !lmr || !fin(lmr.hipJ) || !fin(lmr.sh)) return lv;
+    var L = lmr.sh - lmr.hipJ;
+    if (!(L > 0.2 && L < 0.4)) return lv;
+    lv.mode = 'auto'; lv.hipJ = lmr.hipJ; lv.sh = lmr.sh;
+    var rows = loft.filter(function(l){ return fin(l.w) && fin(l.d) && l.w > 0 && l.d > 0; }).map(function(l){ return {r:l.r, c:ellipsePerimeter(l.w, l.d)}; });
+    var sm = rows.map(function(q, i){ var a = rows[i-1], b = rows[i+1]; var n = 1, c = q.c; if (a && Math.abs(a.r - q.r) < 0.015){ c += a.c; n++; } if (b && Math.abs(b.r - q.r) < 0.015){ c += b.c; n++; } return {r:q.r, c:c/n}; });
+    function pick(lo, hi, wantMax){
+      var best = null;
+      sm.forEach(function(q){ if (q.r < lo - 1e-6 || q.r > hi + 1e-6) return; if (!best || (wantMax ? q.c > best.c : q.c < best.c)) best = q; });
+      return best;
+    }
+    var hj = lmr.hipJ, w, hp, ch;
+    if (sex === 'male'){ w = {r:+(hj + cfg.navelFrac*L).toFixed(3)}; lv.waist = {r:w.r, src:'navel_est'}; }
+    else { w = pick(hj + 0.12*L, hj + 0.55*L, false); if (w) lv.waist = {r:w.r, src:'narrowest'}; }
+    hp = pick(Math.max(0.47, hj - 0.15*L), hj + 0.05*L, true); if (hp) lv.hip = {r:hp.r, src:'widest'};
+    ch = pick(hj + 0.50*L, Math.min(hj + 0.80*L, 0.76), true); if (ch) lv.chest = {r:ch.r, src:'widest'};
+    return lv;
+  }
+  function loftIndex(loft, r){ var bi = -1, bd = 1; loft.forEach(function(l, i){ var d = Math.abs(l.r - r); if (d < bd){ bd = d; bi = i; } }); return bi; }
+
+  function aggregate(frames, heightCm, cfg, sex){
+    cfg = cfg || DEFAULT_CFG;
+    var valid = frames.filter(function(f){ return f.valid; });
+    var res = {nFrames:frames.length, nValid:valid.length, parts:{}, loft:[], warnings:[], reasons:{}};
+    frames.forEach(function(f){ if (!f.valid) res.reasons[f.reason] = (res.reasons[f.reason]||0) + 1; });
+    PARTS.forEach(function(p){
+      var v = valid.map(function(f){ return f.parts[p]; }).filter(function(x){ return x != null && isFinite(x); });
+      if (v.length < cfg.minPartFrames){ res.parts[p] = null; return; }
+      var wid = percentile(v, 0.9) * heightCm, dep = percentile(v, 0.1) * heightCm;
+      res.parts[p] = {n:v.length, width_cm:wid, depth_cm:dep, raw_cm:ellipsePerimeter(wid, dep), rotation_ratio:wid/dep, series:v.map(function(x){ return x*heightCm; })};
+    });
+    if (valid.length){
+      var L = valid[0].loft.length;
+      for (var i = 0; i < L; i++){
+        var vv = valid.map(function(f){ return f.loft[i] && f.loft[i].v; }).filter(function(x){ return x != null && isFinite(x); });
+        res.loft.push({r:valid[0].loft[i].r, w: vv.length >= 5 ? percentile(vv,0.9)*heightCm : null, d: vv.length >= 5 ? percentile(vv,0.1)*heightCm : null});
+      }
+      var hjs = valid.map(function(f){ return f.lmr && f.lmr.hipJ; }).filter(fin), shs = valid.map(function(f){ return f.lmr && f.lmr.sh; }).filter(fin);
+      res.levels = detectLevels(res.loft, (hjs.length >= 5 && shs.length >= 5) ? {hipJ:median(hjs), sh:median(shs)} : null, sex, cfg);
+      if (res.levels.mode === 'auto'){
+        ['chest','waist','hip'].forEach(function(p){
+          var idx = loftIndex(res.loft, res.levels[p].r); if (idx < 0) return;
+          var v = valid.map(function(f){
+            var a = [idx-1, idx, idx+1].map(function(j){ return f.loft[j] && f.loft[j].v; }).filter(fin);
+            return a.length ? median(a) : null;
+          }).filter(fin);
+          if (v.length < cfg.minPartFrames){ res.parts[p] = null; return; }
+          var wid = percentile(v, 0.9)*heightCm, dep = percentile(v, 0.1)*heightCm;
+          res.parts[p] = {n:v.length, width_cm:wid, depth_cm:dep, raw_cm:ellipsePerimeter(wid, dep), rotation_ratio:wid/dep, series:v.map(function(x){ return x*heightCm; })};
+        });
+      }
+    }
+    // Kiểm tra chất lượng
+    if (valid.length < cfg.minValidFrames) res.warnings.push({lv:'bad', t:'Chỉ ' + valid.length + ' khung hình dùng được (cần ít nhất ' + cfg.minValidFrames + '). Kiểm tra người có nằm trọn trong khung không.'});
+    if (res.reasons.cut_off) res.warnings.push({lv:'warn', t: res.reasons.cut_off + ' khung bị cắt đầu hoặc chân, đã loại.'});
+    var hs = valid.map(function(f){ return f.Hpx; });
+    if (hs.length > 3){
+      var m = hs.reduce(function(a,b){return a+b;},0)/hs.length;
+      var sd = Math.sqrt(hs.reduce(function(a,b){return a+(b-m)*(b-m);},0)/hs.length);
+      res.heightCV = sd/m;
+      if (sd/m > 0.06) res.warnings.push({lv:'warn', t:'Chiều cao người trong khung thay đổi ' + (100*sd/m).toFixed(0) + '%: người đo có thể đã bước tới/lui, hoặc camera chưa cố định.'});
+    }
+    // Độ rộng vai (từ điểm mốc khớp vai, ×1,12 ra mép ngoài) cho hình nhân 3D
+    var shv = valid.map(function(f){ return f.meta && f.meta.shoulderSpread; }).filter(fin);
+    res.shoulder_cm = shv.length >= 5 ? percentile(shv, 0.9)*heightCm*1.12 : null;
+    // Tay có dang không: xét các khung gần chính diện (vai rộng nhất)
+    var sp = valid.filter(function(f){ return f.meta && fin(f.meta.shoulderSpread) && fin(f.meta.wristSpread); });
+    if (sp.length >= 5){
+      var mxs = Math.max.apply(null, sp.map(function(f){ return f.meta.shoulderSpread; }));
+      var fr = sp.filter(function(f){ return f.meta.shoulderSpread >= 0.8*mxs; });
+      var down = fr.filter(function(f){ return f.meta.wristSpread < 1.8*f.meta.shoulderSpread; }).length;
+      res.armsOutShare = fr.length ? 1 - down/fr.length : null;
+      if (fr.length && down/fr.length > 0.5) res.warnings.push({lv:'bad', t:'Tay chưa dang ra khi quay (ở các góc chính diện): tay che mép thân nên số đo bị lớn. Quay lại với tay dang chữ T.'});
+    }
+    var ch = res.parts.chest || res.parts.waist;
+    if (ch && ch.rotation_ratio < 1.15) res.warnings.push({lv:'bad', t:'Bề ngang và bề dày thân gần như bằng nhau: có vẻ chưa xoay đủ một vòng. Kết quả không dùng được.'});
+    PARTS.forEach(function(p){ if (!res.parts[p]) res.warnings.push({lv:'warn', t:'Không đủ khung hình để đo ' + NAMES[p] + '.'}); });
+    return res;
+  }
+  var NAMES = {neck:'cổ', chest:'ngực', waist:'eo', hip:'hông'};
+  var VIEW_ORDER = ['front','right','back','left'];
+  var VIEW_NAMES = {front:'Trước', right:'Nghiêng phải', back:'Sau', left:'Nghiêng trái'};
+  function mean(a){ return a.reduce(function(x,y){ return x+y; }, 0) / a.length; }
+  function fin(x){ return x != null && isFinite(x); }
+
+  // Chế độ 4 ảnh: bề ngang = TB(trước, sau), bề dày = TB(phải, trái)
+  function aggregatePhotos(views, heightCm, cfg, sex){
+    cfg = cfg || DEFAULT_CFG;
+    var res = {mode:'photos_4', nFrames:0, nValid:0, parts:{}, loft:[], warnings:[], reasons:{}, views:{}};
+    VIEW_ORDER.forEach(function(k){
+      var f = views[k]; if (!f) return;
+      res.nFrames++; if (f.valid) res.nValid++; else res.reasons[f.reason] = (res.reasons[f.reason]||0) + 1;
+      res.views[k] = {valid:!!f.valid, reason: f.valid ? null : f.reason};
+    });
+    var FR = ['front','back'].filter(function(k){ return views[k] && views[k].valid; });
+    var SD = ['right','left'].filter(function(k){ return views[k] && views[k].valid; });
+    var REASON = {no_person:'không thấy người', too_small:'người quá nhỏ trong ảnh', cut_off:'bị cắt đầu hoặc chân'};
+    VIEW_ORDER.forEach(function(k){ if (views[k] && !views[k].valid) res.warnings.push({lv:'warn', t:'Ảnh ' + VIEW_NAMES[k].toLowerCase() + ' không dùng được: ' + (REASON[views[k].reason] || views[k].reason) + '.'}); });
+    if (!FR.length) res.warnings.push({lv:'bad', t:'Thiếu ảnh chính diện (trước hoặc sau) dùng được.'});
+    if (!SD.length) res.warnings.push({lv:'bad', t:'Thiếu ảnh nghiêng (phải hoặc trái) dùng được.'});
+    PARTS.forEach(function(p){
+      var wv = FR.map(function(k){ return views[k].parts[p]; }).filter(fin);
+      var dv = SD.map(function(k){ return views[k].parts[p]; }).filter(fin);
+      if (!wv.length || !dv.length){ res.parts[p] = null; return; }
+      var wid = mean(wv)*heightCm, dep = mean(dv)*heightCm, pv = {};
+      VIEW_ORDER.forEach(function(k){ if (views[k] && views[k].valid && fin(views[k].parts[p])) pv[k] = views[k].parts[p]*heightCm; });
+      res.parts[p] = {n:wv.length + dv.length, width_cm:wid, depth_cm:dep, raw_cm:ellipsePerimeter(wid, dep), rotation_ratio:wid/dep, series:null, perView:pv};
+    });
+    if (FR.length && SD.length){
+      var L = views[FR[0]].loft.length;
+      for (var i = 0; i < L; i++){
+        var lw = FR.map(function(k){ return views[k].loft[i] && views[k].loft[i].v; }).filter(fin);
+        var ld = SD.map(function(k){ return views[k].loft[i] && views[k].loft[i].v; }).filter(fin);
+        res.loft.push({r:views[FR[0]].loft[i].r, w: lw.length ? mean(lw)*heightCm : null, d: ld.length ? mean(ld)*heightCm : null});
+      }
+      var lmF = FR.map(function(k){ return views[k].lmr; }).filter(function(x){ return x && fin(x.hipJ) && fin(x.sh); });
+      res.levels = detectLevels(res.loft, lmF.length ? {hipJ:mean(lmF.map(function(x){ return x.hipJ; })), sh:mean(lmF.map(function(x){ return x.sh; }))} : null, sex, cfg);
+      if (res.levels.mode === 'auto'){
+        ['chest','waist','hip'].forEach(function(p){
+          var idx = loftIndex(res.loft, res.levels[p].r); if (idx < 0) return;
+          function at(k){ var a = [idx-1, idx, idx+1].map(function(j){ var l = views[k].loft[j]; return l && l.v; }).filter(fin); return a.length ? median(a) : null; }
+          var wv = FR.map(at).filter(fin), dv = SD.map(at).filter(fin);
+          if (!wv.length || !dv.length){ res.parts[p] = null; return; }
+          var wid = mean(wv)*heightCm, dep = mean(dv)*heightCm, pv = {};
+          VIEW_ORDER.forEach(function(k){ if (views[k] && views[k].valid){ var x = at(k); if (fin(x)) pv[k] = x*heightCm; } });
+          res.parts[p] = {n:wv.length + dv.length, width_cm:wid, depth_cm:dep, raw_cm:ellipsePerimeter(wid, dep), rotation_ratio:wid/dep, series:null, perView:pv};
+        });
+      }
+    }
+    // Ảnh chính diện: tay phải dang ra, không che mép eo/hông
+    FR.forEach(function(k){
+      var m = views[k].meta;
+      if (m && fin(m.wristSpread) && fin(m.shoulderSpread) && m.shoulderSpread > 0 && m.wristSpread < 1.8*m.shoulderSpread){
+        res.warnings.push({lv:'bad', t:'Ảnh ' + VIEW_NAMES[k].toLowerCase() + ': tay chưa dang ra, đang che mép thân nên bề ngang ngực/eo/hông bị đo lớn. Chụp lại với tay dang chữ T hoặc chữ A.'});
+        res.views[k].armsOut = false;
+      } else if (m && fin(m.wristSpread)) res.views[k].armsOut = true;
+    });
+    // Ảnh nghiêng: ước lượng góc lệch từ độ rộng vai so với ảnh chính diện
+    var ref = FR.map(function(k){ return views[k].meta && views[k].meta.shoulderSpread; }).filter(fin);
+    res.shoulder_cm = ref.length ? mean(ref)*heightCm*1.12 : null;
+    if (ref.length){
+      var r0 = mean(ref);
+      SD.forEach(function(k){
+        var m = views[k].meta; if (!m || !fin(m.shoulderSpread) || r0 <= 0) return;
+        var ang = Math.asin(Math.min(1, m.shoulderSpread / r0)) * 180 / Math.PI;
+        res.views[k].offAngleDeg = Math.round(ang);
+        if (ang > 12) res.warnings.push({lv: ang > 25 ? 'bad' : 'warn', t:'Ảnh ' + VIEW_NAMES[k].toLowerCase() + ' có vẻ lệch khoảng ' + Math.round(ang) + '° so với tư thế nghiêng chuẩn: bề dày bị đo lớn. Đứng đúng dấu chân rồi chụp lại.'});
+      });
+    }
+    // Hai ảnh cùng trục phải gần nhau
+    [['front','back','chính diện (trước/sau)'],['right','left','nghiêng (phải/trái)']].forEach(function(pr){
+      var a = views[pr[0]], b = views[pr[1]];
+      if (!(a && b && a.valid && b.valid && fin(a.parts.waist) && fin(b.parts.waist))) return;
+      var diff = Math.abs(a.parts.waist - b.parts.waist) / Math.min(a.parts.waist, b.parts.waist);
+      if (diff > 0.08) res.warnings.push({lv:'warn', t:'Hai ảnh ' + pr[2] + ' chênh nhau ' + Math.round(diff*100) + '% ở vòng eo: một ảnh có thể đứng lệch góc.'});
+    });
+    var ch = res.parts.waist || res.parts.chest;
+    if (ch && ch.rotation_ratio < 1.1) res.warnings.push({lv:'bad', t:'Ảnh chính diện và ảnh nghiêng cho bề rộng gần như bằng nhau: có thể đã chọn nhầm ô ảnh hoặc chụp sai hướng.'});
+    if (FR.length < 2 || SD.length < 2) res.warnings.push({lv:'warn', t:'Có ' + (FR.length + SD.length) + '/4 ảnh dùng được. Đủ 4 ảnh thì sai số do đứng lệch sẽ giảm.'});
+    PARTS.forEach(function(p){ if (!res.parts[p] && FR.length && SD.length) res.warnings.push({lv:'warn', t:'Không đo được ' + NAMES[p] + ' trên các ảnh.'}); });
+    return res;
+  }
+
+  function navy(sex, heightCm, neck, waist, hip){
+    if (!(heightCm > 0 && neck > 0 && waist > 0)) return null;
+    var bf;
+    if (sex === 'female'){
+      if (!(hip > 0) || waist + hip - neck <= 0) return null;
+      bf = 495 / (1.29579 - 0.35004*Math.log10(waist + hip - neck) + 0.22100*Math.log10(heightCm)) - 450;
+    } else {
+      if (waist - neck <= 0) return null;
+      bf = 495 / (1.0324 - 0.19077*Math.log10(waist - neck) + 0.15456*Math.log10(heightCm)) - 450;
+    }
+    return (isFinite(bf) && bf > 0 && bf < 75) ? bf : null;
+  }
+  function bmi(w, h){ return (w > 0 && h > 0) ? w / Math.pow(h/100, 2) : null; }
+  function deurenberg(b, age, sex){ return (b && age > 0) ? 1.2*b + 0.23*age - 10.8*(sex === 'male' ? 1 : 0) - 5.4 : null; }
+
+  // Hiệu chuẩn: một số thước làm mốc -> k áp cho mọi vòng
+  function calibrate(agg, tape, anchor, globalK){
+    var k = globalK > 0 ? globalK : 1, src = 'global';
+    if (anchor && tape[anchor] > 0 && agg.parts[anchor]){ k = tape[anchor] / agg.parts[anchor].raw_cm; src = 'anchor:' + anchor; }
+    var cal = {}, errs = [];
+    PARTS.forEach(function(p){
+      var a = agg.parts[p];
+      cal[p] = a ? a.raw_cm * k : null;
+      if (a && tape[p] > 0 && p !== anchor){ errs.push(Math.abs(cal[p] - tape[p])); }
+    });
+    return {k:k, source:src, cm:cal, mae: errs.length ? errs.reduce(function(x,y){return x+y;},0)/errs.length : null, nCompared:errs.length};
+  }
+
+
+  // ===== Hình nhân 3D dựng từ số đo (cm, đã hiệu chuẩn) =====
+  // spec: {H, loft:[{r,w,d}], parts:{neck,chest,waist,hip:{w,d}|null}, ratios, shoulder, neckRatio, scale(r)->hệ số}
+  function interpProf(pts, r){
+    if (!pts.length) return null;
+    if (r <= pts[0].r) return pts[0];
+    if (r >= pts[pts.length-1].r) return pts[pts.length-1];
+    for (var i = 1; i < pts.length; i++){
+      if (r <= pts[i].r){ var a = pts[i-1], b = pts[i], t = (r - a.r)/(b.r - a.r || 1); return {r:r, w:a.w + t*(b.w - a.w), d:a.d + t*(b.d - a.d)}; }
+    }
+    return pts[pts.length-1];
+  }
+  function smooth3(p){ return p.map(function(q, i){ if (i === 0 || i === p.length-1) return q; var a = p[i-1], b = p[i+1]; return {r:q.r, w:(a.w + 2*q.w + b.w)/4, d:(a.d + 2*q.d + b.d)/4}; }); }
+  function byR(a, b){ return a.r - b.r; }
+
+  function buildAvatar(spec){
+    var H = spec.H, P = spec.parts || {}, R = spec.ratios || DEFAULT_CFG.ratios;
+    var sc = spec.scale || function(){ return 1; };
+    var loft = smooth3((spec.loft || []).filter(function(l){ return fin(l.w) && fin(l.d) && l.w > 0 && l.d > 0; }).sort(byR));
+    var ch = P.chest || {w:0.19*H, d:0.135*H};
+    var wa = P.waist || {w:ch.w*0.86, d:ch.d*0.85};
+    var hp = P.hip || {w:ch.w*1.08, d:ch.d*1.05};
+    var nk = P.neck || {w:0.068*H, d:0.068*H};
+    var sh = (fin(spec.shoulder) && spec.shoulder > ch.w*0.95) ? spec.shoulder : ch.w*1.2;
+    var nr = fin(spec.neckRatio) ? spec.neckRatio : 0.85;
+
+    // --- Thân + cổ: lát cắt đo được (0.47–0.745), vòng đo làm mốc chính, vai và cổ dựng theo tỉ lệ
+    var tp = loft.filter(function(l){ return l.r >= 0.47 && l.r <= 0.745; });
+    [['chest',ch],['waist',wa],['hip',hp]].forEach(function(x){
+      var r0 = R[x[0]]; tp = tp.filter(function(l){ return Math.abs(l.r - r0) > 0.012; }); tp.push({r:r0, w:x[1].w, d:x[1].d});
+    });
+    var lp = loft.filter(function(l){ return l.r < 0.47; });
+    if (!lp.length) lp = [{r:0.02, w:hp.w*0.42, d:hp.d*0.32}, {r:0.25, w:hp.w*0.55, d:hp.d*0.4}, {r:0.45, w:hp.w*0.95, d:hp.d*0.62}];
+    var lTop = interpProf(lp, 0.455);
+    tp.push({r:0.455, w:Math.min(hp.w*0.97, lTop.w*1.02), d:hp.d*0.8});
+    tp.push({r:0.78, w:(ch.w + sh)/2, d:ch.d*0.95});
+    tp.push({r:0.80, w:sh, d:ch.d*0.82});
+    tp.push({r:0.815, w:sh*0.86, d:ch.d*0.70});
+    tp.push({r:0.827, w:Math.max(nk.w*1.6, sh*0.5), d:nk.d*1.35});
+    tp.push({r:Math.min(nr - 0.004, 0.84), w:nk.w*1.05, d:nk.d*1.05});
+    tp.push({r:nr, w:nk.w, d:nk.d});
+    tp.push({r:0.872, w:nk.w*1.02, d:nk.d*1.02});
+    tp.sort(byR);
+    // Đầu: chiều dọc mặt trước–sau dài hơn bề ngang; lấy từ lát cắt nếu có
+    var hl = loft.filter(function(l){ return l.r >= 0.9 && l.r <= 0.96; });
+    var headW = 0.093*H, headD = 0.118*H;
+    if (hl.length){
+      var mw = Math.max.apply(null, hl.map(function(l){ return l.w; })), md = Math.max.apply(null, hl.map(function(l){ return l.d; }));
+      if (md > 0.06*H && md < 0.13*H) headW = md; if (mw > 0.08*H && mw < 0.16*H) headD = mw;
+    }
+    var hc = 0.936, hh = 0.064;
+
+    var V = [], Q = [], N = [], T = [];
+    function addTube(rings, seg, tag, capStart, capEnd){
+      var base = V.length/3, i, j;
+      rings.forEach(function(g){
+        for (j = 0; j < seg; j++){
+          var t = 2*Math.PI*j/seg, c = Math.cos(t), s = Math.sin(t);
+          V.push(g.c[0] + g.a*c*g.u[0] + g.b*s*g.v[0], g.c[1] + g.a*c*g.u[1] + g.b*s*g.v[1], g.c[2] + g.a*c*g.u[2] + g.b*s*g.v[2]);
+        }
+      });
+      function vtx(k){ return [V[3*k], V[3*k+1], V[3*k+2]]; }
+      for (i = 0; i < rings.length - 1; i++){
+        var g0 = rings[i], g1 = rings[i+1];
+        for (j = 0; j < seg; j++){
+          var j1 = (j + 1) % seg, a = base + i*seg + j, b = base + i*seg + j1, c2 = base + (i+1)*seg + j1, d = base + (i+1)*seg + j;
+          Q.push(a, b, c2, d); T.push(tag);
+          // pháp tuyến hướng ra ngoài: hiệu chỉnh theo tâm vòng
+          var pa = vtx(a), pb = vtx(b), pd = vtx(d), pc = vtx(c2);
+          var e1 = [pb[0]-pa[0], pb[1]-pa[1], pb[2]-pa[2]], e2 = [pd[0]-pa[0], pd[1]-pa[1], pd[2]-pa[2]];
+          var n = [e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]];
+          var mid = [(pa[0]+pb[0]+pc[0]+pd[0])/4, (pa[1]+pb[1]+pc[1]+pd[1])/4, (pa[2]+pb[2]+pc[2]+pd[2])/4];
+          var cc = [(g0.c[0]+g1.c[0])/2, (g0.c[1]+g1.c[1])/2, (g0.c[2]+g1.c[2])/2];
+          var out = [mid[0]-cc[0], mid[1]-cc[1], mid[2]-cc[2]];
+          if (n[0]*out[0] + n[1]*out[1] + n[2]*out[2] < 0){ n = [-n[0], -n[1], -n[2]]; }
+          var L = Math.hypot(n[0], n[1], n[2]) || 1; N.push(n[0]/L, n[1]/L, n[2]/L);
+        }
+      }
+      function cap(ri, sign){
+        var g = rings[ri], ci = V.length/3; V.push(g.c[0], g.c[1], g.c[2]);
+        var ax = sign;
+        for (j = 0; j < seg; j++){
+          var j1 = (j + 1) % seg; Q.push(ci, ci, base + ri*seg + j1, base + ri*seg + j); T.push(tag); N.push(ax[0], ax[1], ax[2]);
+        }
+      }
+      if (capStart) cap(0, capStart);
+      if (capEnd) cap(rings.length - 1, capEnd);
+    }
+    var X = [1,0,0], Z = [0,0,1];
+
+    // Thân + cổ + đầu thành một ống liền
+    var trunk = [], r;
+    for (r = 0.455; r <= 0.8725; r += 0.01){
+      var p = interpProf(tp, r), s = sc(r);
+      trunk.push({c:[0, r*H, 0], u:X, v:Z, a:p.w/2*s, b:p.d/2*s});
+    }
+    for (r = 0.88; r <= 1.0001; r += 0.008){
+      var t2 = Math.max(-1, Math.min(1, (r - hc)/hh)), f = Math.sqrt(Math.max(0, 1 - t2*t2));
+      var hw = Math.max(headW/2*f, r < 0.9 ? nk.w/2 : 0), hd = Math.max(headD/2*f, r < 0.9 ? nk.d/2 : 0);
+      trunk.push({c:[0, r*H, -0.01*H*f], u:X, v:Z, a:Math.max(hw, 0.2), b:Math.max(hd, 0.2)});
+    }
+    addTube(trunk, 36, 0, [0,-1,0], [0,1,0]);
+
+    // Hai chân: tách từ bề rộng cả hai chân (ảnh chính diện) và bề dày một chân (ảnh nghiêng)
+    [-1, 1].forEach(function(side){
+      var rings = [];
+      for (r = 0.01; r <= 0.4701; r += 0.01){
+        var q = interpProf(lp, Math.min(r, 0.46)), s2 = sc(r);
+        var W = q.w, lw = W*0.47, ld = Math.max(lw*0.7, Math.min(q.d, lw*1.45));
+        if (r > 0.44){ var tt = Math.min(1, (r - 0.44)/0.04); lw = lw*(1 - tt) + (lTop.w*0.5)*tt; ld = ld*(1 - tt) + (hp.d*0.75)*tt; }
+        rings.push({c:[side*W*0.255*s2, r*H, 0], u:X, v:Z, a:lw/2*s2, b:ld/2*s2});
+      }
+      addTube(rings, 20, 0, [0,-1,0], null);
+    });
+
+    // Hai tay: chỉ minh hoạ (chưa đo), cỡ theo vòng ngực, dáng chữ A
+    var kk = ellipsePerimeter(ch.w, ch.d)/90, ang = 14*Math.PI/180, Lg = 0.335*H;
+    var prof = [[0,4.8],[0.15,4.6],[0.5,3.7],[0.56,3.6],[0.62,3.9],[0.86,2.7],[0.92,3.0],[0.97,2.4],[1,1.2]];
+    function armR(t){ for (var i = 1; i < prof.length; i++) if (t <= prof[i][0]){ var a = prof[i-1], b = prof[i], u = (t - a[0])/(b[0] - a[0]); return (a[1] + u*(b[1] - a[1]))*kk; } return 1; }
+    [-1, 1].forEach(function(side){
+      var dir = [side*Math.sin(ang), -Math.cos(ang), 0], u = [Math.cos(ang), side*Math.sin(ang), 0];
+      var sx = side*(sh/2 - 4.6*kk), sy = 0.805*H, rings = [];
+      for (var t = 0; t <= 1.0001; t += 0.04){
+        var rr = armR(t);
+        rings.push({c:[sx + dir[0]*Lg*t, sy + dir[1]*Lg*t, 0], u:u, v:Z, a:rr, b:rr*0.92});
+      }
+      addTube(rings, 14, 1, [-dir[0], -dir[1], -dir[2]], dir);
+    });
+
+    var rings = [];
+    VD_PARTS_FOR_RINGS.forEach(function(pn){
+      var pp = P[pn]; if (!pp) return;
+      var rr = pn === 'neck' ? nr : R[pn], s3 = sc(rr);
+      rings.push({part:pn, r:rr, a:pp.w/2*s3, b:pp.d/2*s3, circ:ellipsePerimeter(pp.w*s3, pp.d*s3)});
+    });
+    return {H:H, verts:new Float32Array(V), quads:new Uint32Array(Q), normals:new Float32Array(N), tags:new Uint8Array(T), rings:rings};
+  }
+  var VD_PARTS_FOR_RINGS = ['neck','chest','waist','hip'];
+  // Hệ số co giãn quanh từng vòng để mô phỏng mục tiêu (Gauss theo chiều cao)
+  function targetScale(ratios, factors, sigma){
+    sigma = sigma || 0.035;
+    return function(r){
+      var s = 1;
+      ['chest','waist','hip'].forEach(function(p){ var f = factors[p]; if (fin(f) && f !== 1) s *= 1 + (f - 1)*Math.exp(-Math.pow((r - ratios[p])/sigma, 2)); });
+      return s;
+    };
+  }
+
+  return {buildAvatar:buildAvatar, targetScale:targetScale, VERSION:VERSION, PARTS:PARTS, NAMES:NAMES, DEFAULT_CFG:DEFAULT_CFG, soVN:soVN, morph:morph, analyzeFrame:analyzeFrame,
+          aggregate:aggregate, aggregatePhotos:aggregatePhotos, detectLevels:detectLevels, VIEW_ORDER:VIEW_ORDER, VIEW_NAMES:VIEW_NAMES, calibrate:calibrate, navy:navy, bmi:bmi, deurenberg:deurenberg, ellipsePerimeter:ellipsePerimeter, percentile:percentile};
+})();
+if (typeof module !== 'undefined') module.exports = VD;
+</script>
+
+<script id="vd-body">
+/* [hinh nguoi 1.0] VDB — hình người 3D từ mẫu bề mặt Innerscene (CC0 1.0, innerscene.com), chỉnh theo số đo camera.
+   Mẫu đã đổi sang vfl_body_{nam,nu}_v1.bin (toạ độ cm, lượng tử 16 bit, chỉ số tam giác 16 bit, cờ tay/đầu).
+   Cách chỉnh: co giãn từng lát cắt ngang theo bề ngang (w) và bề dày (d) đo được; bụng nhô trước nhiều hơn sau
+   (điểm neo bề dày lệch về phía lưng); chân co giãn quanh tâm từng chân; tay và đầu chỉ co theo chiều cao. */
+var VDB = (function(){
+  var BIN = 0.005;
+  function parse(buf){
+    var dv = new DataView(buf), u8 = new Uint8Array(buf);
+    if (String.fromCharCode(u8[0],u8[1],u8[2],u8[3]) !== 'VFLB') throw new Error('Sai định dạng mẫu hình người');
+    var hl = dv.getUint32(4, true), hdr = JSON.parse(new TextDecoder().decode(u8.subarray(8, 8 + hl))), o = 8 + hl;
+    var nv = hdr.nv, ni = hdr.ni, q = new Uint16Array(buf, o, nv*3); o += nv*6;
+    var idx = new Uint16Array(buf.slice(o, o + ni*2)); o += ni*2;
+    var flags = new Uint8Array(buf, o, nv); o += nv;
+    var armw = hdr.armw ? new Uint8Array(buf, o, nv) : null;
+    var P = new Float32Array(nv*3);
+    for (var i = 0; i < nv; i++) for (var a = 0; a < 3; a++) P[3*i+a] = hdr.min[a] + q[3*i+a]/65535*(hdr.max[a]-hdr.min[a]);
+    var T = {hdr:hdr, H:hdr.max[1], nv:nv, P:P, idx:idx, arm:new Uint8Array(nv), head:new Uint8Array(nv)};
+    T.aw = new Float32Array(nv);
+    for (i = 0; i < nv; i++){ T.arm[i] = flags[i] & 1; T.head[i] = (flags[i] >> 1) & 1; T.aw[i] = armw ? armw[i]/255 : T.arm[i]; }
+    // nhóm đỉnh trùng vị trí (đường nối UV) để tính pháp tuyến liền mạch, không có vệt
+    var key = {}, grp = new Int32Array(nv), ng = 0;
+    for (i = 0; i < nv; i++){ var k = q[3*i] + ',' + q[3*i+1] + ',' + q[3*i+2]; if (key[k] === undefined) key[k] = ng++; grp[i] = key[k]; }
+    T.grp = grp; T.ng = ng;
+    // thống kê lát cắt của mẫu (bỏ tay)
+    var nb = Math.ceil(1/BIN) + 1, S = [];
+    for (var b = 0; b < nb; b++) S.push({n:0, xmin:1e9, xmax:-1e9, zmin:1e9, zmax:-1e9, ax:1e9,
+      L:{xmin:1e9,xmax:-1e9,zmin:1e9,zmax:-1e9}, R:{xmin:1e9,xmax:-1e9,zmin:1e9,zmax:-1e9}});
+    T.bin = new Int16Array(nv);
+    for (i = 0; i < nv; i++){
+      var x = P[3*i], y = P[3*i+1], z = P[3*i+2], bi = Math.min(nb-1, Math.max(0, Math.round(y/T.H/BIN))); T.bin[i] = bi;
+      if (T.arm[i]) continue;
+      var s = S[bi]; s.n++; if (x < s.xmin) s.xmin = x; if (x > s.xmax) s.xmax = x; if (z < s.zmin) s.zmin = z; if (z > s.zmax) s.zmax = z; if (Math.abs(x) < s.ax) s.ax = Math.abs(x);
+      var sd = x >= 0 ? s.L : s.R; if (x < sd.xmin) sd.xmin = x; if (x > sd.xmax) sd.xmax = x; if (z < sd.zmin) sd.zmin = z; if (z > sd.zmax) sd.zmax = z;
+    }
+    // vùng hai chân tách rời: dưới đáy chậu, không có đỉnh nào sát trục giữa
+    var crotch = 0;
+    for (b = 0; b < nb; b++){ if (S[b].n && S[b].ax > 0.6 && b*BIN < 0.55) crotch = b; }
+    S.forEach(function(s, b){ s.legs = b <= crotch && s.n > 0; });
+    T.S = S; T.nb = nb; T.crotch = crotch*BIN;
+    return T;
+  }
+  function interp(arr){ // điền chỗ trống bằng nội suy tuyến tính
+    var n = arr.length, last = -1;
+    for (var i = 0; i < n; i++){ if (arr[i] == null) continue;
+      if (last >= 0 && i - last > 1) for (var j = last+1; j < i; j++){ var t = (j-last)/(i-last); arr[j] = arr[last] + (arr[i]-arr[last])*t; }
+      last = i; }
+    return arr;
+  }
+  function smooth(arr, w){ var out = arr.slice(), n = arr.length;
+    for (var i = 0; i < n; i++){ if (arr[i] == null) continue; var s = 0, c = 0; for (var k = -w; k <= w; k++){ var v = arr[i+k]; if (v != null){ s += v; c++; } } out[i] = s/c; }
+    return out; }
+  function hullPerim(pts){
+    pts.sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
+    var cr = function(o,a,b){ return (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]); }, lo = [], up = [], i;
+    for (i = 0; i < pts.length; i++){ while (lo.length >= 2 && cr(lo[lo.length-2], lo[lo.length-1], pts[i]) <= 0) lo.pop(); lo.push(pts[i]); }
+    for (i = pts.length-1; i >= 0; i--){ while (up.length >= 2 && cr(up[up.length-2], up[up.length-1], pts[i]) <= 0) up.pop(); up.push(pts[i]); }
+    up.pop(); lo.pop(); var h = lo.concat(up), s = 0;
+    for (i = 0; i < h.length; i++){ var p = h[i], q = h[(i+1)%h.length]; s += Math.hypot(p[0]-q[0], p[1]-q[1]); }
+    return s;
+  }
+  // spec: {H, loft:[{r,w,d}], parts:{neck,chest,waist,hip:{w,d}}, ratios, neckRatio}; scaleFn(r) cho chế độ mục tiêu
+  function build(T, spec, scaleFn){
+    // 3 vòng lặp: đo chu vi bao lồi trên hình → hiệu chỉnh để khớp chu vi đo (thân người không phải elip)
+    var corr = null, out = null;
+    for (var it = 0; it < 4; it++){
+      out = build1(T, spec, scaleFn, corr); if (!out) return null;
+      var c = {}, any = false; out.rings.forEach(function(rg){ if (rg.got > 0){ c[rg.part] = {r:rg.r, f:(corr && corr[rg.part] ? corr[rg.part].f : 1)*rg.circ/rg.got}; any = true; } });
+      if (!any) break; corr = c;
+    }
+    return out;
+  }
+  function build1(T, spec, scaleFn, corr){
+    var sc0 = scaleFn || function(){ return 1; }, H = spec.H, s = H/T.H, nb = T.nb, S = T.S;
+    var cp = corr ? Object.keys(corr).map(function(k){ return corr[k]; }).sort(function(a,b){ return a.r-b.r; }) : [];
+    var cf = function(r){ if (!cp.length) return 1; if (r <= cp[0].r) return 1 + (cp[0].f-1)*Math.max(0, 1-(cp[0].r-r)/0.06);
+      if (r >= cp[cp.length-1].r){ var l = cp[cp.length-1]; return 1 + (l.f-1)*Math.max(0, 1-(r-l.r)/0.04); }
+      for (var i = 0; i < cp.length-1; i++){ if (r <= cp[i+1].r){ var t = (r-cp[i].r)/(cp[i+1].r-cp[i].r); return cp[i].f + (cp[i+1].f-cp[i].f)*t; } } return 1; };
+    var sc = function(r){ return sc0(r)*cf(r); };
+    var tw = new Array(nb).fill(null), td = new Array(nb).fill(null), lo = Math.round(0.30/BIN), hi = Math.round(0.74/BIN);
+    (spec.loft || []).forEach(function(l){ if (!(l.w > 0 && l.d > 0) || l.r < 0.30 || l.r > 0.74) return; var b = Math.round(l.r/BIN), k = sc(l.r); tw[b] = l.w*k; td[b] = l.d*k; });
+    ['chest','waist','hip','neck'].forEach(function(p){ var q = spec.parts && spec.parts[p]; if (!q) return;
+      var r = p === 'neck' ? spec.neckRatio : spec.ratios[p], b = Math.round(r/BIN), k = sc(r); tw[b] = q.w*k; td[b] = q.d*k; });
+    // hệ số so với mẫu đã co theo chiều cao
+    var fx = new Array(nb).fill(null), fz = new Array(nb).fill(null), have = [];
+    for (var b = 0; b < nb; b++){ var st = S[b]; if (tw[b] == null || !st.n) continue;
+      var bw = (st.xmax - st.xmin)*s, bd = (st.zmax - st.zmin)*s; if (bw <= 0 || bd <= 0) continue;
+      fx[b] = Math.max(0.6, Math.min(1.9, tw[b]/bw)); fz[b] = Math.max(0.6, Math.min(1.9, td[b]/bd)); have.push(b); }
+    if (!have.length) return null;
+    var b0 = have[0], b1 = have[have.length-1];
+    // hai đầu: trả dần về 1 trong 0,04 chiều cao
+    var ramp = Math.round(0.04/BIN);
+    for (b = 0; b < nb; b++){ if (b < b0 - ramp || b > b1 + ramp){ fx[b] = 1; fz[b] = 1; } }
+    if (b0 - ramp >= 0){ fx[b0-ramp] = 1; fz[b0-ramp] = 1; }
+    if (b1 + ramp < nb){ fx[b1+ramp] = 1; fz[b1+ramp] = 1; }
+    fx = smooth(interp(fx), 3); fz = smooth(interp(fz), 3);
+    for (b = 0; b < nb; b++){ if (fx[b] == null) fx[b] = 1; if (fz[b] == null) fz[b] = 1; }
+    var P = T.P, nv = T.nv, Q = new Float32Array(nv*3);
+    for (var i = 0; i < nv; i++){
+      var x = P[3*i]*s, y = P[3*i+1]*s, z = P[3*i+2]*s, bi = T.bin[i], st = S[bi], kx = fx[bi], kz = fz[bi];
+      if (T.head[i]){ /* đầu: chỉ co theo chiều cao */ }
+      else if (T.aw[i] > 0.02 && st.n && !st.legs){   // tay & vùng nách: hoà giữa cách co của thân và dịch chuyển của tay theo trọng số khung xương
+        var half = Math.max(Math.abs(st.xmin), Math.abs(st.xmax))*s, wA = T.aw[i];
+        var xa = x + (x >= 0 ? 1 : -1)*half*(kx-1), za = z;
+        var zA1 = (st.zmin + 0.35*(st.zmax - st.zmin))*s, xt1 = x*kx, zt1 = zA1 + (z - zA1)*kz;
+        x = xa*wA + xt1*(1-wA); z = za*wA + zt1*(1-wA);
+      }
+      else if (T.arm[i]){ /* tay ở mức không có thân (bàn tay thấp): giữ nguyên */ }
+      else if (st.legs){
+        var sd = x >= 0 ? st.L : st.R, cx = (sd.xmin + sd.xmax)/2*s, hw = (sd.xmax - sd.xmin)/2*s, span = (st.xmax - st.xmin)*s;
+        var halfT = span*kx/2, kk = hw > 0 ? Math.max(0.85, Math.min(1.35, (halfT - Math.abs(cx))/hw)) : 1;
+        kz = Math.max(0.85, Math.min(1.35, kz));   // đùi chưa đo trực tiếp: giới hạn co giãn
+        var xl = cx + (x - cx)*kk, zc = (sd.zmin + sd.zmax)/2*s, zl = zc + (z - zc)*kz;
+        // gần đáy chậu: hoà dần sang cách co của thân để không có nếp gãy ở mép quần
+        var wb = Math.max(0, Math.min(1, (bi*BIN - (T.crotch - 0.05))/0.05));
+        if (wb > 0){ var zA2 = (st.zmin + 0.35*(st.zmax - st.zmin))*s, xt = x*fx[bi], zt = zA2 + (z - zA2)*fz[bi]; xl = xl*(1-wb) + xt*wb; zl = zl*(1-wb) + zt*wb; }
+        x = xl; z = zl;
+      } else if (st.n){
+        x = x*kx; var zA = (st.zmin + 0.35*(st.zmax - st.zmin))*s; z = zA + (z - zA)*kz;   // bụng/ngực nhô trước nhiều hơn lưng
+      }
+      Q[3*i] = x; Q[3*i+1] = y; Q[3*i+2] = z;
+    }
+    // pháp tuyến liền mạch
+    var I = T.idx, gN = new Float32Array(T.ng*3), N = new Float32Array(nv*3);
+    for (i = 0; i < I.length; i += 3){
+      var a = I[i], c = I[i+1], d = I[i+2];
+      var ux = Q[3*c]-Q[3*a], uy = Q[3*c+1]-Q[3*a+1], uz = Q[3*c+2]-Q[3*a+2], vx = Q[3*d]-Q[3*a], vy = Q[3*d+1]-Q[3*a+1], vz = Q[3*d+2]-Q[3*a+2];
+      var nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+      [a,c,d].forEach(function(v){ var g = T.grp[v]; gN[3*g] += nx; gN[3*g+1] += ny; gN[3*g+2] += nz; });
+    }
+    for (i = 0; i < nv; i++){ var g = T.grp[i], l = Math.hypot(gN[3*g], gN[3*g+1], gN[3*g+2]) || 1; N[3*i] = gN[3*g]/l; N[3*i+1] = gN[3*g+1]/l; N[3*i+2] = gN[3*g+2]/l; }
+    // sai lệch vòng: chu vi bao lồi của lát cắt hình so với chu vi đo
+    var err = [], rings = [];
+    ['neck','chest','waist','hip'].forEach(function(p){ var q = spec.parts && spec.parts[p]; if (!q) return;
+      var r = p === 'neck' ? spec.neckRatio : spec.ratios[p], yy = r*H, pts = [], zs = 0, n = 0;
+      for (var j = 0; j < nv; j++){ if (T.arm[j] || Math.abs(Q[3*j+1] - yy) > 0.6) continue; pts.push([Q[3*j], Q[3*j+2]]); zs += Q[3*j+2]; n++; }
+      var k0 = sc0(r), w = q.w*k0, d = q.d*k0, want = VD.ellipsePerimeter(w, d), got = pts.length > 8 ? hullPerim(pts) : 0;
+      if (got) err.push(got - want);
+      rings.push({part:p, r:r, a:w/2, b:d/2, circ:want, got:got, cx:0, cz: n ? zs/n : 0});
+    });
+    var rms = err.length ? Math.sqrt(err.reduce(function(a, e){ return a + e*e; }, 0)/err.length) : null;
+    return {H:H, Q:Q, N:N, rings:rings, rms:rms, nIdx:I.length};
+  }
+  return {parse:parse, build:build, BIN:BIN};
+})();
+</script>
+
+<script id="vd-anny">
+/* ===== VFL Anny: dựng hình nhân từ bộ PCA + khớp theo số đo camera =====
+   Dữ liệu dẫn xuất từ Anny (Copyright 2025 NAVER Corp., Apache-2.0) và MakeHuman/MPFB2 (CC0). */
+var VDA = (function(){
+  function parse(buf){
+    var dv = new DataView(buf);
+    if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'VFLA') throw new Error('Sai định dạng file hình nhân');
+    var hl = dv.getUint32(4, true);
+    var hdr = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(buf, 8, hl)));
+    var base = Math.ceil((8 + hl)/8)*8, S = hdr.sections;
+    function sec(n, T){ var s = S[n]; return new T(buf, base + s.offset, s.count); }
+    var m = {hdr:hdr, nv:hdr.nv, k:hdr.k, D:hdr.nv*3, meanM:sec('mean_m', Float32Array), meanF:sec('mean_f', Float32Array),
+             basis:sec('basis', Int16Array), faces:sec('faces', Uint16Array), zone:sec('zone', Uint8Array),
+             scale:Float32Array.from(hdr.basis_scale), sd:Float32Array.from(hdr.coef_sd)};
+    // các đỉnh không phải tay (dùng cho lát cắt thân/chân)
+    var bf = [], F = m.faces;
+    for (var f = 0; f < F.length; f += 3) if (m.zone[F[f]] !== 1 && m.zone[F[f+1]] !== 1 && m.zone[F[f+2]] !== 1) bf.push(F[f], F[f+1], F[f+2]);
+    m.bodyFaces = Uint16Array.from(bf);
+    return m;
+  }
+  function reconstruct(m, sex, c, out){
+    var D = m.D, mean = sex === 'male' ? m.meanM : m.meanF, B = m.basis, K = m.k;
+    out = out || new Float32Array(D);
+    out.set(mean);
+    for (var k = 0; k < K; k++){
+      var ck = c[k]*m.scale[k]; if (!ck) continue;
+      var off = k*D;
+      for (var j = 0; j < D; j++) out[j] += ck*B[off + j];
+    }
+    return out;
+  }
+  function yRange(m, v){
+    var lo = 1e9, hi = -1e9;
+    for (var i = 0; i < m.nv; i++){ var y = v[3*i+1]; if (y < lo) lo = y; if (y > hi) hi = y; }
+    return [lo, hi];
+  }
+  // Lát cắt thật: giao mặt phẳng y = y0 với các tam giác (bỏ tam giác thuộc tay).
+  // Mỗi cực trị là điểm nội suy giữa 2 đỉnh (ia, ib, t) để tính đạo hàm chính xác.
+  function slice(m, v, r, yr){
+    var h = yr[1] - yr[0], y0 = yr[0] + r*h, F = m.bodyFaces;
+    var ex = {xn:[1e9], xx:[-1e9], zn:[1e9], zx:[-1e9]};
+    function upd(a, b, t){
+      var x = v[3*a] + t*(v[3*b] - v[3*a]), z = v[3*a+2] + t*(v[3*b+2] - v[3*a+2]);
+      if (x < ex.xn[0]) ex.xn = [x, a, b, t]; if (x > ex.xx[0]) ex.xx = [x, a, b, t];
+      if (z < ex.zn[0]) ex.zn = [z, a, b, t]; if (z > ex.zx[0]) ex.zx = [z, a, b, t];
+    }
+    for (var f = 0; f < F.length; f += 3){
+      var a = F[f], b = F[f+1], c = F[f+2], ya = v[3*a+1] - y0, yb = v[3*b+1] - y0, yc = v[3*c+1] - y0;
+      if ((ya > 0 && yb > 0 && yc > 0) || (ya < 0 && yb < 0 && yc < 0)) continue;
+      if ((ya > 0) !== (yb > 0) && ya !== yb) upd(a, b, ya/(ya - yb));
+      if ((yb > 0) !== (yc > 0) && yb !== yc) upd(b, c, yb/(yb - yc));
+      if ((yc > 0) !== (ya > 0) && yc !== ya) upd(c, a, yc/(yc - ya));
+    }
+    if (ex.xn.length < 4) return null;
+    return {w:(ex.xx[0] - ex.xn[0])/h, d:(ex.zx[0] - ex.zn[0])/h, ex:ex, cx:(ex.xx[0] + ex.xn[0])/2, cz:(ex.zx[0] + ex.zn[0])/2};
+  }
+  function dpt(m, k, e, comp){ // đạo hàm toạ độ điểm cực trị theo hệ số k
+    var off = k*m.D, a = e[1], b = e[2], t = e[3];
+    return ((1 - t)*m.basis[off + 3*a + comp] + t*m.basis[off + 3*b + comp])*m.scale[k];
+  }
+  function solve(A, b, n){ // Gauss có chọn trụ
+    var M = A.map(function(row, i){ return row.concat([b[i]]); });
+    for (var c = 0; c < n; c++){
+      var p = c; for (var r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      var tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+      var piv = M[c][c] || 1e-12;
+      for (r = c + 1; r < n; r++){ var f = M[r][c]/piv; if (!f) continue; for (var q = c; q <= n; q++) M[r][q] -= f*M[c][q]; }
+    }
+    var x = new Array(n).fill(0);
+    for (var i = n - 1; i >= 0; i--){ var s = M[i][n]; for (var j = i + 1; j < n; j++) s -= M[i][j]*x[j]; x[i] = s/(M[i][i] || 1e-12); }
+    return x;
+  }
+  // targets: [{r, w, d, wt}] với w, d = bề rộng/chiều cao (chuẩn hoá theo chiều cao người)
+  function fit(m, sex, targets, opts){
+    opts = opts || {};
+    var K = m.k, c = new Float64Array(K), v = new Float32Array(m.D), iters = opts.iters || 14;
+    var lam = opts.lambda != null ? opts.lambda : 2e-5, sigma = 0.004;
+    var info = {rms:null, n:0};
+    for (var it = 0; it < iters; it++){
+      reconstruct(m, sex, c, v);
+      var yr = yRange(m, v), h = yr[1] - yr[0];
+      var A = [], g = [], i, k;
+      for (i = 0; i < K; i++){ A.push(new Array(K).fill(0)); g.push(0); }
+      var se = 0, n = 0;
+      targets.forEach(function(t){
+        var s = slice(m, v, t.r, yr); if (!s) return;
+        [['w', s.ex.xx, s.ex.xn, 0], ['d', s.ex.zx, s.ex.zn, 2]].forEach(function(q){
+          if (!(t[q[0]] > 0)) return;
+          var res = s[q[0]] - t[q[0]], wt = (t.wt || 1)/(sigma*sigma), J = new Array(K);
+          for (k = 0; k < K; k++) J[k] = (dpt(m, k, q[1], q[3]) - dpt(m, k, q[2], q[3]))/h;
+          for (var a = 0; a < K; a++){ if (!J[a]) continue; g[a] += wt*J[a]*res; for (var bb = 0; bb < K; bb++) A[a][bb] += wt*J[a]*J[bb]; }
+          se += res*res; n++;
+        });
+      });
+      for (k = 0; k < K; k++){ var pr = 1/(m.sd[k]*m.sd[k]); A[k][k] += pr*lam/(sigma*sigma) + 1e-9; g[k] += pr*lam/(sigma*sigma)*c[k]; }
+      var dlt = solve(A, g.map(function(x){ return -x; }), K);
+      var step = 0; for (k = 0; k < K; k++){ c[k] += dlt[k]; step += dlt[k]*dlt[k]; }
+      info.rms = n ? Math.sqrt(se/n) : null; info.n = n; info.iters = it + 1;
+      if (Math.sqrt(step) < 1e-4 && it > 3) break;
+    }
+    reconstruct(m, sex, c, v);
+    info.coef = Array.from(c);
+    return {coef:c, verts:v, info:info};
+  }
+  // Đổi sang cm theo chiều cao thật, chân chạm đất, tâm ở 0
+  function toCm(m, v, H){
+    var yr = yRange(m, v), s = H/(yr[1] - yr[0]), out = new Float32Array(v.length);
+    for (var i = 0; i < m.nv; i++){ out[3*i] = v[3*i]*s; out[3*i+1] = (v[3*i+1] - yr[0])*s; out[3*i+2] = v[3*i+2]*s; }
+    return out;
+  }
+  function normals(m, P){
+    var N = new Float32Array(P.length), F = m.faces;
+    for (var f = 0; f < F.length; f += 3){
+      var a = 3*F[f], b = 3*F[f+1], c = 3*F[f+2];
+      var ux = P[b]-P[a], uy = P[b+1]-P[a+1], uz = P[b+2]-P[a+2], vx = P[c]-P[a], vy = P[c+1]-P[a+1], vz = P[c+2]-P[a+2];
+      var nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+      N[a] += nx; N[a+1] += ny; N[a+2] += nz; N[b] += nx; N[b+1] += ny; N[b+2] += nz; N[c] += nx; N[c+1] += ny; N[c+2] += nz;
+    }
+    for (var i = 0; i < N.length; i += 3){ var L = Math.hypot(N[i], N[i+1], N[i+2]) || 1; N[i] /= L; N[i+1] /= L; N[i+2] /= L; }
+    return N;
+  }
+  return {parse:parse, reconstruct:reconstruct, yRange:yRange, slice:slice, fit:fit, toCm:toCm, normals:normals};
+})();
+if (typeof module !== 'undefined') module.exports = VDA;
+
+</script>
+
+<script>
+/* ===== Giao diện ===== */
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var COLORS = {neck:'#7A5AA6', chest:'#2C6FB0', waist:'#C2702E', hip:'#2E8A6A'};
+  var CFG_KEY = 'vongdo_cfg_v1';
+  var cfg = loadCfg();
+  var state = {videoReady:false, frames:null, agg:null, landmarker:null, lastTs:0, source:null, mode:'video', photos:{}};
+  var VIEW_ORDER = VD.VIEW_ORDER, VIEW_NAMES = VD.VIEW_NAMES;
+  var VIEW_SUB = {front:'mặt hướng camera', right:'xoay 90°, vai phải gần camera', back:'lưng hướng camera', left:'xoay tiếp 90°'};
+
+  function loadCfg(){
+    var c = JSON.parse(JSON.stringify(VD.DEFAULT_CFG));
+    try { var s = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); if (s){ for (var k in s){ if (k === 'ratios') Object.assign(c.ratios, s.ratios); else c[k] = s[k]; } } } catch(e){}
+    return c;
+  }
+  function fmt(v, d){ if (v == null || !isFinite(v)) return '—'; return v.toFixed(d == null ? 1 : d).replace('.', ','); }
+  function fillCfgForm(){
+    $('cfg_k').value = fmt(cfg.globalK, 3); $('cfg_chest').value = fmt(cfg.ratios.chest, 3); $('cfg_waist').value = fmt(cfg.ratios.waist, 3);
+    $('cfg_hip').value = fmt(cfg.ratios.hip, 3); $('cfg_neck').value = fmt(cfg.ratios.neck, 3);
+    $('cfg_level').value = cfg.levelMode || 'auto'; $('cfg_navel').value = fmt(cfg.navelFrac, 2); $('cfg_offM').value = fmt(cfg.navyOffsetMale || 0, 1); $('cfg_offF').value = fmt(cfg.navyOffsetFemale || 0, 1); $('cfg_step').value = fmt(cfg.frameStep, 2);
+    $('cfg_res').value = cfg.procHeight; $('cfg_deleg').value = cfg.delegate; $('cfg_mp').value = cfg.mpBase; $('cfg_model').value = cfg.modelUrl;
+  }
+  fillCfgForm();
+  $('btnSaveCfg').onclick = function(){
+    var n = VD.soVN;
+    var nk = n($('cfg_k').value), rc = n($('cfg_chest').value), rw = n($('cfg_waist').value), rh = n($('cfg_hip').value), rn = n($('cfg_neck').value);
+    var st = n($('cfg_step').value), rs = n($('cfg_res').value);
+    if (!(nk > 0.5 && nk < 1.5) || !(rc > 0.3 && rc < 0.9) || !(rw > 0.3 && rw < 0.9) || !(rh > 0.3 && rh < 0.9) || !(rn > 0.7 && rn < 0.95) || !(st >= 0.03 && st <= 1) || !(rs >= 256 && rs <= 1280)){
+      $('cfgMsg').textContent = 'Có giá trị ngoài khoảng hợp lệ, chưa lưu.'; return;
+    }
+    var nf = n($('cfg_navel').value), oM = n($('cfg_offM').value), oF = n($('cfg_offF').value);
+    if (!(nf >= 0.1 && nf <= 0.5) || !(Math.abs(oM) <= 10) || !(Math.abs(oF) <= 10)){ $('cfgMsg').textContent = 'Tỉ lệ rốn phải trong 0,1–0,5 và hiệu chỉnh % mỡ trong ±10 điểm. Chưa lưu.'; return; }
+    cfg.levelMode = $('cfg_level').value; cfg.navelFrac = nf; cfg.navyOffsetMale = oM; cfg.navyOffsetFemale = oF;
+    cfg.globalK = nk; cfg.ratios = {chest:rc, waist:rw, hip:rh, neck:rn}; cfg.frameStep = st; cfg.procHeight = Math.round(rs);
+    cfg.delegate = $('cfg_deleg').value; cfg.mpBase = $('cfg_mp').value.trim(); cfg.modelUrl = $('cfg_model').value.trim();
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); $('cfgMsg').textContent = 'Đã lưu. Tỉ lệ chiều cao mới áp dụng từ lần phân tích sau.'; }
+    catch(e){ $('cfgMsg').textContent = 'Trình duyệt không cho lưu; cài đặt chỉ dùng trong phiên này.'; }
+    state.landmarker = null; if (state.agg) renderResults();
+  };
+  $('btnResetCfg').onclick = function(){ try { localStorage.removeItem(CFG_KEY); } catch(e){} cfg = loadCfg(); fillCfgForm(); $('cfgMsg').textContent = 'Đã về mặc định.'; state.landmarker = null; };
+
+  // ---- Nạp video ----
+  var video = $('video');
+  function showStage(which){
+    ['video','live','preview'].forEach(function(id){ $(id).classList.toggle('hidden', id !== which); });
+    $('stageEmpty').classList.toggle('hidden', !!which);
+  }
+  $('btnPick').onclick = function(){ $('file').click(); };
+  $('file').onchange = function(){
+    var f = this.files && this.files[0]; if (!f) return;
+    loadBlob(f, f.name);
+  };
+  function loadBlob(blob, name){
+    if (video.src) URL.revokeObjectURL(video.src);
+    state.videoReady = false; state.source = name;
+    video.src = URL.createObjectURL(blob);
+    video.controls = true;
+    video.onloadedmetadata = function(){
+      fixDuration().then(function(){
+        state.videoReady = true; showStage('video');
+        $('fileName').textContent = name + ' · ' + fmt(video.duration, 1) + ' giây · ' + video.videoWidth + '×' + video.videoHeight;
+        if (video.duration < 6) setStatus('Video ngắn hơn 6 giây; có thể chưa đủ một vòng xoay.');
+        updateRunBtn();
+      });
+    };
+    video.onerror = function(){ setStatus('Trình duyệt không mở được video này. Thử định dạng MP4 hoặc quay lại bằng camera điện thoại.'); };
+  }
+  // Video ghi từ MediaRecorder có thể báo duration = Infinity
+  function fixDuration(){
+    return new Promise(function(res){
+      if (isFinite(video.duration) && video.duration > 0) return res();
+      var done = false;
+      var fin = function(){ if (done) return; done = true; video.removeEventListener('durationchange', on); video.currentTime = 0; res(); };
+      var on = function(){ if (isFinite(video.duration)) fin(); };
+      video.addEventListener('durationchange', on);
+      video.currentTime = 1e7;
+      setTimeout(fin, 3000);
+    });
+  }
+
+  // ---- Quay bằng camera ----
+  var camStream = null, recorder = null, cancelRec = false;
+  $('btnCam').onclick = async function(){
+    cancelRec = false;
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:1280}, height:{ideal:720}}, audio:false});
+    } catch(e){ setStatus('Không mở được camera (' + (e.name || e) + '). Hãy cấp quyền camera, hoặc quay bằng ứng dụng camera rồi chọn "Chọn video có sẵn".'); return; }
+    var live = $('live'); live.srcObject = camStream; showStage('live');
+    $('btnStopCam').classList.remove('hidden'); $('btnCam').disabled = true;
+    var cd = $('countdown'); cd.style.display = 'flex';
+    for (var i = 5; i > 0; i--){ cd.textContent = i; await sleep(1000); if (cancelRec) return stopCam(); }
+    cd.style.display = 'none';
+    var chunks = [], mime = ['video/mp4','video/webm;codecs=vp9','video/webm'].find(function(m){ return window.MediaRecorder && MediaRecorder.isTypeSupported(m); });
+    try { recorder = new MediaRecorder(camStream, mime ? {mimeType:mime} : undefined); }
+    catch(e){ setStatus('Trình duyệt không hỗ trợ ghi video. Hãy quay bằng ứng dụng camera rồi chọn file.'); return stopCam(); }
+    recorder.ondataavailable = function(e){ if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = function(){
+      var wasCancelled = cancelRec; stopCam();
+      if (wasCancelled || !chunks.length) return;
+      loadBlob(new Blob(chunks, {type: recorder.mimeType || 'video/webm'}), 'Video vừa quay');
+    };
+    $('recBadge').style.display = 'block';
+    recorder.start(250);
+    var t0 = Date.now();
+    while (Date.now() - t0 < 12000 && !cancelRec){ $('recBadge').textContent = 'Đang quay · xoay chậm một vòng · ' + Math.ceil((12000 - (Date.now()-t0))/1000) + ' giây'; await sleep(200); }
+    if (recorder.state !== 'inactive') recorder.stop();
+  };
+  $('btnStopCam').onclick = function(){ cancelRec = true; if (recorder && recorder.state !== 'inactive') recorder.stop(); else stopCam(); };
+  function stopCam(){
+    if (camStream) camStream.getTracks().forEach(function(t){ t.stop(); });
+    camStream = null; $('recBadge').style.display = 'none'; $('countdown').style.display = 'none';
+    $('btnStopCam').classList.add('hidden'); $('btnCam').disabled = false;
+    if (!state.videoReady) showStage(null);
+  }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  // ---- Chế độ 4 ảnh ----
+  function setMode(m){
+    state.mode = m;
+    $('tabVideo').classList.toggle('on', m === 'video'); $('tabPhotos').classList.toggle('on', m === 'photos');
+    $('modeVideo').classList.toggle('hidden', m !== 'video'); $('modePhotos').classList.toggle('hidden', m !== 'photos');
+    if (m === 'video') showStage(state.videoReady ? 'video' : null); else showStage(null);
+    $('stageEmpty').textContent = m === 'video' ? 'Chưa có video' : 'Ảnh đã phân tích sẽ hiện ở đây';
+    updateRunBtn();
+  }
+  $('tabVideo').onclick = function(){ setMode('video'); };
+  $('tabPhotos').onclick = function(){ setMode('photos'); };
+  (function buildSlots(){
+    var box = $('slots');
+    VIEW_ORDER.forEach(function(k, i){
+      var d = document.createElement('div'); d.className = 'slot'; d.id = 'slot_' + k;
+      d.innerHTML = '<div class="ttl">' + (i+1) + ' · ' + VIEW_NAMES[k] + '</div><div class="sub">' + VIEW_SUB[k] + '</div>' +
+        '<div class="ph" id="ph_' + k + '">Bấm để chụp hoặc chọn ảnh</div>' +
+        '<input type="file" accept="image/*" class="hidden" id="in_' + k + '">' +
+        '<button class="x hidden" id="rm_' + k + '">Xoá</button>';
+      box.appendChild(d);
+      d.addEventListener('click', function(e){ if (e.target.id === 'rm_' + k || e.target.id === 'in_' + k) return; $('in_' + k).click(); });
+      $('in_' + k).addEventListener('change', function(){ var f = this.files && this.files[0]; if (f) setPhoto(k, f); this.value = ''; });
+      $('rm_' + k).addEventListener('click', function(e){ e.stopPropagation(); setPhoto(k, null); });
+    });
+  })();
+  var photoUrls = {};
+  function setPhoto(k, f){
+    if (photoUrls[k]){ URL.revokeObjectURL(photoUrls[k]); photoUrls[k] = null; }
+    state.photos[k] = f || null;
+    var ph = $('ph_' + k);
+    if (f){ photoUrls[k] = URL.createObjectURL(f); ph.style.backgroundImage = 'url(' + photoUrls[k] + ')'; ph.textContent = ''; }
+    else { ph.style.backgroundImage = ''; ph.textContent = 'Bấm để chụp hoặc chọn ảnh'; }
+    $('slot_' + k).classList.toggle('has', !!f); $('rm_' + k).classList.toggle('hidden', !f);
+    updateRunBtn();
+  }
+
+  // ---- Điều kiện chạy ----
+  function inputs(){
+    var n = VD.soVN;
+    return {sex:$('sex').value, height:n($('height').value), weight:n($('weight').value), age:n($('age').value), inbody:n($('inbody').value),
+            tape:{neck:n($('t_neck').value), chest:n($('t_chest').value), waist:n($('t_waist').value), hip:n($('t_hip').value)}, anchor:$('anchor').value};
+  }
+  function updateRunBtn(){
+    var i = inputs(), P = state.photos;
+    var media = state.mode === 'photos' ? ((P.front || P.back) && (P.right || P.left)) : state.videoReady;
+    var ok = i.height >= 100 && i.height <= 230 && media && $('consent').checked;
+    $('btnRun').disabled = !ok;
+    var miss = [];
+    if (!(i.height >= 100 && i.height <= 230)) miss.push('chiều cao (100–230 cm)');
+    if (!media) miss.push(state.mode === 'photos' ? 'ít nhất 1 ảnh trước/sau và 1 ảnh nghiêng' : 'video');
+    if (!$('consent').checked) miss.push('đánh dấu đồng ý');
+    $('runHint').textContent = miss.length ? 'Còn thiếu: ' + miss.join(', ') + '.' : 'Sẵn sàng.';
+  }
+  ['height','consent'].forEach(function(id){ $(id).addEventListener('input', updateRunBtn); $(id).addEventListener('change', updateRunBtn); });
+  ['sex','weight','age','inbody','t_neck','t_chest','t_waist','t_hip','anchor'].forEach(function(id){
+    $(id).addEventListener('input', function(){ if (state.agg) renderResults(); });
+    $(id).addEventListener('change', function(){ if (state.agg) renderResults(); });
+  });
+  $('height').addEventListener('input', function(){ if (state.agg) setStatus('Chiều cao đã đổi: bấm "Phân tích" lại để tính theo chiều cao mới.'); });
+
+  function setStatus(t){ $('status').textContent = t || ''; }
+  function setProgress(p){ var el = $('progress'); el.style.display = p == null ? 'none' : 'block'; el.firstElementChild.style.width = ((p||0)*100).toFixed(1) + '%'; }
+
+  // ---- MediaPipe ----
+  async function getLandmarker(){
+    if (state.landmarker) return state.landmarker;
+    if (window.__VD_LANDMARKER_FACTORY){ state.landmarker = await window.__VD_LANDMARKER_FACTORY(); return state.landmarker; }
+    var base = cfg.mpBase.replace(/\/?$/, '/');
+    var mod = await import(base + 'vision_bundle.mjs');
+    var fs = await mod.FilesetResolver.forVisionTasks(base + 'wasm');
+    var opts = function(d){ return {baseOptions:{modelAssetPath:cfg.modelUrl, delegate:d}, runningMode:'VIDEO', numPoses:1, outputSegmentationMasks:true}; };
+    try { state.landmarker = await mod.PoseLandmarker.createFromOptions(fs, opts(cfg.delegate)); }
+    catch(e){ if (cfg.delegate === 'GPU') state.landmarker = await mod.PoseLandmarker.createFromOptions(fs, opts('CPU')); else throw e; }
+    return state.landmarker;
+  }
+  function seek(t){
+    return new Promise(function(res){
+      var done = false, fin = function(){ if (done) return; done = true; video.removeEventListener('seeked', fin); res(); };
+      video.addEventListener('seeked', fin); video.currentTime = t; setTimeout(fin, 2500);
+    });
+  }
+
+  // Chạy nhận diện trên một canvas -> khung đã phân tích (mặt nạ và điểm mốc không giữ lại)
+  function detectFrame(lmk, work){
+    var ts = Math.max(state.lastTs + 1, Math.round(performance.now())); state.lastTs = ts;
+    var r = lmk.detectForVideo(work, ts);
+    var m = r && r.segmentationMasks && r.segmentationMasks[0];
+    if (!m){ closeMasks(r); return {fr:{valid:false, reason:'no_person'}, bin:null}; }
+    var mw = m.width, mh = m.height, f32 = m.getAsFloat32Array(), bin = new Uint8Array(mw*mh);
+    for (var q = 0; q < bin.length; q++) bin[q] = f32[q] > 0.5 ? 1 : 0;
+    closeMasks(r);
+    bin = VD.morph(bin, mw, mh, 2);
+    var lm = r.landmarks && r.landmarks[0] ? r.landmarks[0] : null;
+    return {fr:VD.analyzeFrame(bin, mw, mh, lm, cfg), bin:bin, mw:mw, mh:mh};
+  }
+  // Vẽ khung + bóng người + đường đo vào vùng (dx,dy,dw,dh) của canvas xem trước
+  var maskCan = document.createElement('canvas');
+  function drawOverlay(pctx, work, d, dx, dy, dw, dh, label){
+    pctx.drawImage(work, dx, dy, dw, dh);
+    if (d.bin){
+      if (maskCan.width !== d.mw || maskCan.height !== d.mh){ maskCan.width = d.mw; maskCan.height = d.mh; }
+      var mctx = maskCan.getContext('2d'), id = mctx.createImageData(d.mw, d.mh);
+      for (var q = 0; q < d.bin.length; q++){ if (d.bin[q]){ id.data[q*4] = 70; id.data[q*4+1] = 190; id.data[q*4+2] = 170; id.data[q*4+3] = 90; } }
+      mctx.putImageData(id, 0, 0);
+      pctx.drawImage(maskCan, dx, dy, dw, dh);
+    }
+    if (d.fr.valid){
+      VD.PARTS.forEach(function(p){ var y = dy + d.fr.rows[p] * dh / d.mh; pctx.strokeStyle = COLORS[p]; pctx.lineWidth = 2; pctx.beginPath(); pctx.moveTo(dx, y); pctx.lineTo(dx + dw, y); pctx.stroke(); });
+    }
+    if (label){
+      pctx.fillStyle = 'rgba(0,0,0,.6)'; pctx.fillRect(dx, dy, dw, 26);
+      pctx.fillStyle = d.fr.valid ? '#fff' : '#F2A79C'; pctx.font = '600 14px system-ui'; pctx.fillText(label + (d.fr.valid ? '' : ' · không dùng được'), dx + 8, dy + 18);
+    }
+  }
+
+  $('btnRun').onclick = async function(){
+    var inp = inputs();
+    $('btnRun').disabled = true; video.pause(); video.controls = false;
+    try {
+      setStatus('Đang nạp mô hình nhận diện (lần đầu có thể mất 10–30 giây)…'); setProgress(0.02);
+      var lmk;
+      try { lmk = await getLandmarker(); }
+      catch(e){ setProgress(null); setStatus('Không nạp được MediaPipe: ' + (e.message || e) + '. Kiểm tra mạng, hoặc địa chỉ thư viện/model trong Cài đặt nâng cao.'); return; }
+      var t0 = performance.now();
+      if (state.mode === 'photos') await runPhotos(inp, lmk); else await runVideo(inp, lmk);
+      state.heightUsed = inp.height; state.sexUsed = inp.sex;
+      state.cfgUsed = JSON.parse(JSON.stringify(cfg));
+      state.analyzedAt = new Date().toISOString();
+      state.procSeconds = (performance.now() - t0)/1000;
+      state.captureMode = state.mode === 'photos' ? 'photos_4' : 'video_rotation';
+      setProgress(null);
+      setStatus('Xong: ' + state.agg.nValid + '/' + state.agg.nFrames + (state.mode === 'photos' ? ' ảnh' : ' khung hình') + ' dùng được, ' + fmt(state.procSeconds, 0) + ' giây.');
+      ['resultCard','calCard','vizCard','exportCard'].forEach(function(id){ $(id).classList.remove('hidden'); });
+      state.target = null; state.targetK = null;
+      renderResults(); drawCharts(); startViewer();
+      $('resultCard').scrollIntoView({behavior:'smooth', block:'start'});
+    } catch(e){
+      console.error(e); setProgress(null); setStatus('Lỗi khi phân tích: ' + (e.message || e));
+    } finally {
+      video.controls = true; updateRunBtn();
+    }
+  };
+
+  async function runVideo(inp, lmk){
+    var dur = video.duration, times = [], t;
+    for (t = 0.05; t < dur - 0.02; t += cfg.frameStep) times.push(t);
+    if (times.length > cfg.maxFrames){ var stp = times.length / cfg.maxFrames, tt = []; for (var j = 0; j < cfg.maxFrames; j++) tt.push(times[Math.floor(j*stp)]); times = tt; }
+    var vw = video.videoWidth, vh = video.videoHeight, ch = Math.min(cfg.procHeight, vh), cw = Math.round(vw * ch / vh);
+    var work = document.createElement('canvas'); work.width = cw; work.height = ch;
+    var wctx = work.getContext('2d', {willReadFrequently:true});
+    var prev = $('preview'); prev.width = cw; prev.height = ch; showStage('preview');
+    var pctx = prev.getContext('2d');
+    var frames = [], t0 = performance.now();
+    for (var i = 0; i < times.length; i++){
+      await seek(times[i]);
+      wctx.drawImage(video, 0, 0, cw, ch);
+      var d = detectFrame(lmk, work);
+      d.fr.t = times[i];
+      frames.push(d.fr);
+      drawOverlay(pctx, work, d, 0, 0, cw, ch, null);
+      setProgress(0.05 + 0.95*(i+1)/times.length);
+      var el = (performance.now() - t0)/1000, eta = el/(i+1)*(times.length-i-1);
+      setStatus('Đang phân tích khung ' + (i+1) + '/' + times.length + ' · còn khoảng ' + Math.ceil(eta) + ' giây');
+      await sleep(0);
+    }
+    state.frames = frames;
+    state.agg = VD.aggregate(frames, inp.height, cfg, inp.sex);
+  }
+
+  /* [anh 1.1] mở ảnh bền hơn: thử <img>, rồi createImageBitmap, cuối cùng báo rõ định dạng thật của file */
+  function sniffFormat(file){
+    return file.slice(0, 32).arrayBuffer().then(function(b){
+      var u = new Uint8Array(b), s4 = function(o){ return String.fromCharCode(u[o], u[o+1], u[o+2], u[o+3]); };
+      if (u[0] === 0xFF && u[1] === 0xD8) return 'JPEG';
+      if (u[0] === 0x89 && u[1] === 0x50) return 'PNG';
+      if (s4(0) === 'RIFF' && s4(8) === 'WEBP') return 'WEBP';
+      if (s4(4) === 'ftyp'){ var br = s4(8).toLowerCase(); if (br.indexOf('avi') === 0) return 'AVIF'; if (/^(heic|heix|hevc|heim|heis|mif1|msf1)/.test(br)) return 'HEIC'; return 'ISO/' + br; }
+      if (u[0] === 0x47 && u[1] === 0x49) return 'GIF';
+      return file.size ? 'không rõ' : 'file rỗng (0 byte)';
+    });
+  }
+  function viaImg(file){
+    return new Promise(function(res, rej){
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function(){ URL.revokeObjectURL(url); if (img.naturalWidth > 0) res(img); else rej(new Error('ảnh rỗng')); };
+      img.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('img')); };
+      img.src = url;
+    });
+  }
+  async function loadImage(file){
+    try { return await viaImg(file); } catch(e){}
+    if (window.createImageBitmap){
+      try {
+        var bm = await createImageBitmap(file);
+        var c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; c.getContext('2d').drawImage(bm, 0, 0);
+        c.naturalWidth = bm.width; c.naturalHeight = bm.height; if (bm.close) bm.close(); return c;
+      } catch(e){}
+    }
+    var fmtName = 'không rõ'; try { fmtName = await sniffFormat(file); } catch(e){}
+    var name = (file.name || 'ảnh');
+    var hint = (fmtName === 'HEIC' || fmtName === 'AVIF')
+      ? 'Trình duyệt này không đọc được ảnh ' + fmtName + ' (dù tên file có đuôi .jpg). Cách xử lý: mở trang bằng Safari, hoặc chụp lại bằng nút chụp trong trang, hoặc đổi ảnh sang JPEG (iPhone: Cài đặt → Camera → Định dạng → Tương thích nhất).'
+      : 'Hãy chọn lại ảnh gốc từ máy (không lấy ảnh đã gửi qua Zalo/Messenger), hoặc chụp trực tiếp bằng nút chụp trong trang.';
+    throw new Error('không mở được ảnh "' + name + '" (định dạng thật: ' + fmtName + '). ' + hint);
+  }
+  async function runPhotos(inp, lmk){
+    var keys = VIEW_ORDER.filter(function(k){ return state.photos[k]; });
+    var cellH = 420, imgs = {}, cellW = {}, totalW = 0, gap = 8;
+    for (var i = 0; i < keys.length; i++){ var im = await loadImage(state.photos[keys[i]]); imgs[keys[i]] = im; cellW[keys[i]] = Math.round(im.naturalWidth * cellH / im.naturalHeight); totalW += cellW[keys[i]] + gap; }
+    var prev = $('preview'); prev.width = Math.max(1, totalW - gap); prev.height = cellH; showStage('preview');
+    var pctx = prev.getContext('2d'); pctx.fillStyle = '#121416'; pctx.fillRect(0, 0, prev.width, cellH);
+    var views = {}, x = 0;
+    for (i = 0; i < keys.length; i++){
+      var k = keys[i], img = imgs[k];
+      var ch = Math.min(cfg.photoHeight || 1024, img.naturalHeight), cw = Math.round(img.naturalWidth * ch / img.naturalHeight);
+      var work = document.createElement('canvas'); work.width = cw; work.height = ch;
+      work.getContext('2d', {willReadFrequently:true}).drawImage(img, 0, 0, cw, ch);
+      var d = detectFrame(lmk, work);
+      views[k] = d.fr;
+      drawOverlay(pctx, work, d, x, 0, cellW[k], cellH, VIEW_NAMES[k]);
+      x += cellW[k] + gap;
+      setProgress(0.05 + 0.95*(i+1)/keys.length);
+      setStatus('Đang phân tích ảnh ' + VIEW_NAMES[k].toLowerCase() + ' (' + (i+1) + '/' + keys.length + ')');
+      await sleep(0);
+    }
+    state.frames = null;
+    state.agg = VD.aggregatePhotos(views, inp.height, cfg, inp.sex);
+  }
+  function closeMasks(r){ if (r && r.segmentationMasks) r.segmentationMasks.forEach(function(m){ try { m.close(); } catch(e){} }); }
+
+  // ---- Kết quả ----
+  function renderResults(){
+    var inp = inputs(), agg = state.agg, H = state.heightUsed;
+    var pk = personalK(), usePk = !inp.anchor && pk && pk.k > 0;
+    var cal = VD.calibrate(agg, inp.tape, inp.anchor, usePk ? pk.k : cfg.globalK);
+    if (usePk) cal.source = 'personal';
+    state.cal = cal;
+    var c = cal.cm;
+    var off = inp.sex === 'male' ? (cfg.navyOffsetMale || 0) : (cfg.navyOffsetFemale || 0);
+    var bfVideoRaw = VD.navy(inp.sex, H, c.neck, c.waist, c.hip), bfTapeRaw = VD.navy(inp.sex, H, inp.tape.neck, inp.tape.waist, inp.tape.hip);
+    var bfVideo = bfVideoRaw != null ? bfVideoRaw + off : null, bfTape = bfTapeRaw != null ? bfTapeRaw + off : null;
+    var b = VD.bmi(inp.weight, H), deu = VD.deurenberg(b, inp.age, inp.sex);
+    state.comp = {bfVideo:bfVideo, bfTape:bfTape, bfVideoRaw:bfVideoRaw, bfTapeRaw:bfTapeRaw, navyOffset:off, bmi:b, deurenberg:deu, inbody: inp.inbody > 0 ? inp.inbody : null};
+    var offTxt = off ? ' · đã cộng hiệu chỉnh ' + (off > 0 ? '+' : '') + fmt(off) + ' điểm' : '';
+    var calibrated = cal.source !== 'global' || Math.abs(cal.k - 1) > 1e-6;
+
+    var failed = agg.warnings.some(function(w){ return w.lv === 'bad'; });
+    if (failed){ bfVideo = null; state.comp.bfVideo = null; }
+    var k = '';
+    k += kpi('% mỡ ước tính từ ' + (state.captureMode === 'photos_4' ? 'ảnh' : 'video') + ' (Navy)', bfVideo != null ? fmt(bfVideo) + '%' : '—', failed ? (state.captureMode === 'photos_4' ? 'ảnh không đạt, chụp lại' : 'video không đạt, quay lại') : (calibrated ? 'đã hiệu chuẩn' : 'CHƯA hiệu chuẩn: chỉ để thử') + offTxt, true);
+    if (bfTape != null) k += kpi('% mỡ từ thước dây (Navy)', fmt(bfTape) + '%', 'cùng công thức, số đo tay' + offTxt);
+    if (state.comp.inbody) k += kpi('% mỡ InBody', fmt(state.comp.inbody) + '%', 'chuẩn đối chiếu tại CLB');
+    if (deu != null) k += kpi('Deurenberg (BMI + tuổi)', fmt(deu) + '%', 'chỉ để đối chiếu');
+    if (c.waist) { var wh = c.waist/H; k += kpi('Vòng eo / chiều cao (WHtR)', fmt(wh, 2), wh >= 0.5 ? 'từ 0,5 trở lên: nên theo dõi' : 'dưới 0,5'); }
+    if (b != null) k += kpi('BMI', fmt(b), 'cân nặng ÷ chiều cao²');
+    if (cal.mae != null) k += kpi('Lệch trung bình so với thước', fmt(cal.mae) + ' cm', cal.nCompared + ' vòng, không tính vòng làm mốc');
+    $('kpis').innerHTML = k;
+
+    var msgs = agg.warnings.slice();
+    if (!calibrated) msgs.push({lv:'warn', t:'Chưa hiệu chuẩn: số đo từ camera có thể lệch đều 10–15%. Nhập một số đo thước ở mục 5 và chọn làm mốc.'});
+    if (bfVideo == null && !failed) msgs.push({lv:'warn', t:'Chưa tính được % mỡ Navy: cần đủ vòng cổ, eo' + (inp.sex === 'female' ? ', hông' : '') + '.'});
+    if (state.comp.inbody && bfVideo != null){
+      var d = bfVideo - state.comp.inbody;
+      msgs.push({lv: Math.abs(d) <= 4 ? 'ok' : 'warn', t:'Chênh với InBody: ' + (d > 0 ? '+' : '') + fmt(d) + ' điểm %.' + (Math.abs(d) > 4 ? ' Vượt ngưỡng đề xuất ±4 điểm của giao thức kiểm chứng.' : '')});
+    }
+    if (!msgs.length) msgs.push({lv:'ok', t:'Video đạt các kiểm tra chất lượng cơ bản.'});
+    $('msgs').innerHTML = msgs.map(function(m){ return '<div class="msg ' + m.lv + '">' + m.t + '</div>'; }).join('');
+
+    var rows = '<tr><th>Vòng</th><th>Bề ngang</th><th>Bề dày</th><th>Đo thô</th><th>Sau hiệu chuẩn</th><th>Thước</th><th>Lệch</th><th>Vị trí đo</th><th>Số khung/ảnh</th></tr>';
+    var LV = agg.levels || {}, SRC = {narrowest:'chỗ nhỏ nhất', widest:'chỗ lớn nhất', navel_est:'ngang rốn (ước)', fixed:'tỉ lệ cố định'};
+    VD.PARTS.forEach(function(p){
+      var a = agg.parts[p], tp = inp.tape[p] > 0 ? inp.tape[p] : null, cv = c[p];
+      var err = (cv != null && tp != null) ? cv - tp : null;
+      var errTxt = err == null ? '—' : (p === inp.anchor ? 'mốc' : (err > 0 ? '+' : '') + fmt(err));
+      rows += '<tr><td><span class="dot" style="background:' + COLORS[p] + '"></span>' + cap(VD.NAMES[p]) + (p === 'neck' ? '' : '') + '</td>' +
+        '<td class="num">' + (a ? fmt(a.width_cm*cal.k) : '—') + '</td><td class="num">' + (a ? fmt(a.depth_cm*cal.k) : '—') + '</td>' +
+        '<td class="num">' + (a ? fmt(a.raw_cm) : '—') + '</td><td class="num"><b>' + fmt(cv) + '</b></td>' +
+        '<td class="num">' + fmt(tp) + '</td><td class="num">' + errTxt + '</td><td class="num" title="' + (LV[p] ? SRC[LV[p].src] || '' : '') + '">' + posTxt(p, LV, H) + '</td><td class="num">' + (a ? a.n : 0) + '</td></tr>';
+    });
+    $('tbl').innerHTML = rows;
+    var lvTxt = (LV.mode === 'auto') ? ' Vị trí đo tự tìm theo dáng người này (khớp hông ở ' + fmt(LV.hipJ*100, 0) + '%, khớp vai ở ' + fmt(LV.sh*100, 0) + '% chiều cao): eo ' + (inp.sex === 'male' ? 'ngang rốn (ước tính)' : 'ở chỗ nhỏ nhất') + ', hông và ngực ở chỗ lớn nhất. Vị trí đo tính từ gót chân.' : ' Vị trí đo theo tỉ lệ cố định (không đủ điểm cơ thể để tự tìm).';
+    $('tblHint').textContent = 'Đơn vị cm. Hệ số hiệu chuẩn k = ' + fmt(cal.k, 3) + (cal.source === 'global' ? ' (hệ số chung trong Cài đặt)' : cal.source === 'personal' ? ' (hệ số riêng của khách, hiệu chuẩn ngày ' + new Date(pk.at).toLocaleDateString('vi-VN') + ')' : ' (từ thước ' + VD.NAMES[inp.anchor] + ')') + '. Bề ngang/bề dày là trục elip đã nhân k.' + lvTxt;
+    renderJson();
+    renderUse(failed, calibrated);
+    if (viewer.raf){ updateAvatar(); }
+    if (state.prev) renderPrev();
+  }
+  function posTxt(p, LV, H){
+    var r = p === 'neck' ? null : (LV[p] ? LV[p].r : state.cfgUsed.ratios[p]);
+    if (r == null) return 'giữa vai–cằm';
+    return fmt(r*100, 0) + '% · ' + fmt(r*H, 0) + ' cm';
+  }
+  function kpi(l, v, s, main){ return '<div class="kpi' + (main ? ' main' : '') + '"><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + (s||'') + '</div></div>'; }
+  function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  // ---- Biểu đồ đường xoay ----
+  function drawCharts(){
+    var box = $('charts'); box.innerHTML = '';
+    $('chartHint').textContent = state.captureMode === 'photos_4'
+      ? 'Bề rộng mỗi vòng trên từng ảnh. Cột màu là ảnh trước/sau (bề ngang), cột xám là ảnh nghiêng (bề dày). Hai cột cùng loại nên gần bằng nhau.'
+      : 'Mỗi ô là bề rộng đo được qua từng khung hình khi xoay. Đường đều dạng sóng là xoay tốt; nét đứt trên là bề ngang (phân vị 90), nét đứt dưới là bề dày (phân vị 10).';
+    VD.PARTS.forEach(function(p){
+      var cv = document.createElement('canvas'); box.appendChild(cv);
+      var dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 240, Hh = 120;
+      cv.width = W*dpr; cv.height = Hh*dpr; var g = cv.getContext('2d'); g.scale(dpr, dpr);
+      g.fillStyle = '#1D1F22'; g.font = '600 12px system-ui'; g.fillText(cap(VD.NAMES[p]), 10, 16);
+      var a = state.agg.parts[p]; if (!a){ g.fillStyle = '#6B6F76'; g.font = '12px system-ui'; g.fillText('không đủ dữ liệu', 10, 60); return; }
+      if (!a.series){ // chế độ 4 ảnh: cột theo từng ảnh
+        var ks = VIEW_ORDER.filter(function(k){ return a.perView[k] != null; }), mxv = Math.max.apply(null, ks.map(function(k){ return a.perView[k]; }));
+        var bw = (W - 20) / 4;
+        ks.forEach(function(k){
+          var idx = VIEW_ORDER.indexOf(k), v = a.perView[k], bh = (Hh - 50) * v / mxv, x0 = 10 + idx*bw + 6;
+          g.fillStyle = (k === 'front' || k === 'back') ? COLORS[p] : 'rgba(120,124,130,.55)'; g.fillRect(x0, Hh - 18 - bh, bw - 12, bh);
+          g.fillStyle = '#1D1F22'; g.font = '11px system-ui'; g.textAlign = 'center'; g.fillText(fmt(v, 0), x0 + (bw-12)/2, Hh - 22 - bh);
+          g.fillStyle = '#6B6F76'; g.fillText(VIEW_NAMES[k].replace('Nghiêng ', 'N.'), x0 + (bw-12)/2, Hh - 5);
+        });
+        g.textAlign = 'right'; g.fillStyle = '#6B6F76'; g.fillText('cm (thô)', W - 10, 16);
+        return;
+      }
+      var s = a.series, mn = Math.min.apply(null, s), mx = Math.max.apply(null, s), pad = (mx - mn)*0.15 || 1; mn -= pad; mx += pad;
+      var X = function(i){ return 10 + (W-20) * i / Math.max(1, s.length-1); }, Y = function(v){ return 26 + (Hh-36) * (1 - (v-mn)/(mx-mn)); };
+      [a.width_cm, a.depth_cm].forEach(function(v){ g.strokeStyle = '#9AA0A6'; g.setLineDash([4,4]); g.lineWidth = 1; g.beginPath(); g.moveTo(10, Y(v)); g.lineTo(W-10, Y(v)); g.stroke(); });
+      g.setLineDash([]); g.strokeStyle = COLORS[p]; g.lineWidth = 2; g.beginPath();
+      s.forEach(function(v,i){ if (i) g.lineTo(X(i), Y(v)); else g.moveTo(X(i), Y(v)); }); g.stroke();
+      g.fillStyle = '#6B6F76'; g.font = '11px system-ui'; g.textAlign = 'right';
+      g.fillText(fmt(a.width_cm,0) + ' / ' + fmt(a.depth_cm,0) + ' cm (thô)', W-10, 16);
+    });
+  }
+
+  // ---- Hình nhân 3D ----
+  var BASE_RGB = {0:[178,200,196], 1:[150,166,164]};
+  var viewer = {yaw:0.5, pitch:0.1, zoom:1, panX:0, panY:0, auto:true, dirty:true, mode:'cur', rings:true, raf:0, meshes:{}};
+  var TARGET_PARTS = ['chest','waist','hip'];
+  state.target = null; state.prev = null;
+
+  // ---- Hình nhân Anny (WebGL) ----
+  var ANNY_URL = 'vfl_anny_body_v1.bin';
+  var anny = {model:null, loading:null, failed:null, gl:null, prog:null, ibo:null, nIdx:0};
+  function loadAnny(){
+    if (anny.model || anny.loading || anny.failed) return anny.loading;
+    $('fitInfo').textContent = 'Đang tải dữ liệu hình nhân (khoảng 3 MB, chỉ tải một lần)…';
+    anny.loading = fetch(ANNY_URL).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+      .then(function(buf){ anny.model = VDA.parse(buf); if (!initGL()) throw new Error('Trình duyệt không hỗ trợ WebGL'); annyIbo(); anny.loading = null; if (!CMP) updateAvatar(); })
+      .catch(function(e){ anny.failed = e.message || String(e); anny.loading = null; $('fitInfo').textContent = 'Không tải được hình nhân chi tiết (' + anny.failed + '): đang dùng hình khối đơn giản.'; viewer.dirty = true; });
+    return anny.loading;
+  }
+  function annyIbo(){ var gl = anny.gl; if (!gl || !anny.model || anny.ibo) return; anny.ibo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, anny.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, anny.model.faces, gl.STATIC_DRAW); anny.nIdx = anny.model.faces.length; }
+  function initGL(){
+    if (anny.gl) return true;
+    var cv = $('viewerGL'), gl = cv.getContext('webgl', {antialias:true, alpha:true, premultipliedAlpha:false});
+    if (!gl) return false;
+    var vs = 'attribute vec3 p;attribute vec3 n;attribute vec3 c;uniform vec4 rot;uniform vec4 tf;uniform vec2 hs;uniform float mid;uniform float dr;varying vec3 vn;varying vec3 vc;varying float vy;' +
+      'void main(){vec3 q=p;q.y-=mid;float x1=q.x*rot.x+q.z*rot.y;float z1=-q.x*rot.y+q.z*rot.x;float y2=q.y*rot.z-z1*rot.w;float z2=q.y*rot.w+z1*rot.z;' +
+      'float nx1=n.x*rot.x+n.z*rot.y;float nz1=-n.x*rot.y+n.z*rot.x;vn=vec3(nx1,n.y*rot.z-nz1*rot.w,n.y*rot.w+nz1*rot.z);vc=c;vy=p.y/(2.0*mid);' +
+      'gl_Position=vec4((tf.z+x1*tf.x)/hs.x,(y2*tf.x-tf.w)/hs.y,-z2/dr,1.0);}';
+    var fs = 'precision mediump float;varying vec3 vn;varying vec3 vc;varying float vy;uniform float human;uniform vec4 band;void main(){vec3 N=normalize(vn);if(!gl_FrontFacing)N=-N;' +
+      'float l=max(dot(N,normalize(vec3(0.35,0.55,0.76))),0.0);float h=0.5+0.5*N.y;float rim=pow(1.0-max(N.z,0.0),3.0);' +
+      'vec3 base=vc;if(human>0.5){base=vec3(0.74,0.79,0.80);if(vc.z>0.5&&((vy>band.x&&vy<band.y)||(vy>band.z&&vy<band.w)))base=vec3(0.20,0.25,0.28);}' +
+      'vec3 col=base*(0.30+0.62*l+0.12*h)+vec3(0.10,0.13,0.13)*rim;gl_FragColor=vec4(col,1.0);}';
+    function sh(t, s){ var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
+    var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return false;
+    anny.gl = gl; anny.prog = pr;
+    if (anny.model) annyIbo();
+    return true;
+  }
+  // Đích khớp: các lát cắt đo được (đã hiệu chuẩn) + các vòng chính; bỏ vùng tay dang, đầu (tóc) và bàn chân
+  function fitTargets(spec, scaleFn){
+    var H = spec.H, T = [], sc = scaleFn || function(){ return 1; };
+    (spec.loft || []).forEach(function(l){
+      if (!(l.w > 0 && l.d > 0) || l.r < 0.3 || l.r > 0.86 || (l.r > 0.74 && l.r < 0.86)) return;
+      var near = ['chest','waist','hip'].some(function(p){ return Math.abs(l.r - spec.ratios[p]) < 0.012; });
+      if (near) return;
+      var s = sc(l.r); T.push({r:l.r, w:l.w*s/H, d:l.d*s/H, wt: l.r < 0.47 ? 0.3 : 1});
+    });
+    ['neck','chest','waist','hip'].forEach(function(p){
+      var q = spec.parts[p]; if (!q) return;
+      var r = p === 'neck' ? spec.neckRatio : spec.ratios[p], s = sc(r);
+      T.push({r:r, w:q.w*s/H, d:q.d*s/H, wt: p === 'neck' ? 2 : 3});
+    });
+    return T;
+  }
+  function buildAnnyMesh(spec, sex, scaleFn){
+    var m = anny.model, f = VDA.fit(m, sex === 'male' ? 'male' : 'female', fitTargets(spec, scaleFn));
+    var P = VDA.toCm(m, f.verts, spec.H), N = VDA.normals(m, P), C = new Float32Array(P.length);
+    var skin = [0.70, 0.78, 0.76], cloth = [0.20, 0.25, 0.28], fem = sex !== 'male';
+    for (var i = 0; i < m.nv; i++){
+      var r = P[3*i+1]/spec.H, z = m.zone[i], col = skin;
+      if (z === 0 && ((r > 0.40 && r < 0.545) || (fem && r > 0.655 && r < 0.795))) col = cloth;
+      C[3*i] = col[0]; C[3*i+1] = col[1]; C[3*i+2] = col[2];
+    }
+    var gl = anny.gl, mk = function(a){ var b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW); return b; };
+    // vòng đo: tâm lấy từ lát cắt của hình nhân, kích thước theo số đo
+    var yr = [0, spec.H], rings = [];
+    ['neck','chest','waist','hip'].forEach(function(p){
+      var q = spec.parts[p]; if (!q) return;
+      var r = p === 'neck' ? spec.neckRatio : spec.ratios[p], s = (scaleFn || function(){ return 1; })(r), sl = VDA.slice(m, P, r, yr);
+      rings.push({part:p, r:r, a:q.w*s/2, b:q.d*s/2, circ:VD.ellipsePerimeter(q.w*s, q.d*s), cx: sl ? sl.cx : 0, cz: sl ? sl.cz : 0});
+    });
+    return {H:spec.H, glMesh:{p:mk(P), n:mk(N), c:mk(C)}, rings:rings, fitRmsCm: f.info.rms != null ? f.info.rms*spec.H : null};
+  }
+  function freeMesh(ms){ if (ms && ms.glMesh && anny.gl){ ['p','n','c'].forEach(function(k){ anny.gl.deleteBuffer(ms.glMesh[k]); }); } }   /* ibo của hình người dùng chung theo giới, không xoá */
+  // ---- Hình người (mẫu Innerscene CC0) ----
+  var BODY_URL = {male:'vfl_body_nam_v1.bin', female:'vfl_body_nu_v1.bin'};
+  var body = {T:{}, loading:{}, failed:{}, ibo:{}};
+  viewer.kind = 'nguoi';
+  function sexKey(sx){ return sx === 'male' ? 'male' : 'female'; }
+  function loadBody(sx, then){ var k = sexKey(sx); if (body.T[k] || body.failed[k]) return Promise.resolve(); if (body.loading[k]) return body.loading[k];
+    body.loading[k] = fetch(BODY_URL[k]).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+      .then(function(buf){ body.T[k] = VDB.parse(buf); if (!initGL()) throw new Error('Trình duyệt không hỗ trợ WebGL'); body.loading[k] = null; if (then) then(); })
+      .catch(function(e){ body.failed[k] = e.message || String(e); body.loading[k] = null; $('fitInfo').textContent = 'Không tải được hình người (' + body.failed[k] + '): dùng hình nhân thay thế.'; if (then) then(); });
+    return body.loading[k]; }
+  function buildBodyMesh(spec, sex, scaleFn){
+    var k = sexKey(sex), T = body.T[k], gl = anny.gl; if (!T || !gl) return null;
+    var r = VDB.build(T, spec, scaleFn); if (!r) return null;
+    if (!body.ibo[k]){ body.ibo[k] = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, body.ibo[k]); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, T.idx, gl.STATIC_DRAW); }
+    var nv = T.nv, C = new Float32Array(nv*3), fem = k === 'female';
+    for (var i = 0; i < nv; i++){ C[3*i] = 0.74; C[3*i+1] = 0.79; C[3*i+2] = (T.arm[i] || T.head[i]) ? 0 : 1; }   /* kênh z = được phủ quần áo (shader tô theo chiều cao) */
+    var mk = function(a){ var b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW); return b; };
+    return {H:spec.H, kind:'nguoi', fem:fem, glMesh:{p:mk(r.Q), n:mk(r.N), c:mk(C), ibo:body.ibo[k], nIdx:r.nIdx}, rings:r.rings, fitRmsCm:r.rms};
+  }
+  // Chọn hình hiển thị: hình người (mặc định) → hình nhân Anny → hình khối
+  function buildDisplayMesh(spec, sex, scaleFn){
+    if (viewer.kind === 'nguoi'){ var m = buildBodyMesh(spec, sex, scaleFn); if (m) return m; }
+    return (anny.model && anny.gl) ? buildAnnyMesh(spec, sex, scaleFn) : (function(){ if (scaleFn) spec.scale = scaleFn; return VD.buildAvatar(spec); })();
+  }
+  function drawGLPairs(pairs, W, Hh, scale){
+    var gl = anny.gl, cv = $('viewerGL'), dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(W*dpr) || cv.height !== Math.round(Hh*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(Hh*dpr); }
+    gl.viewport(0, 0, cv.width, cv.height); gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST); gl.useProgram(anny.prog);
+    var pr = anny.prog, loc = function(n){ return gl.getUniformLocation(pr, n); };
+    var colW = W/pairs.length;
+    pairs.forEach(function(pp, i){
+      var ms = pp[0]; if (!ms.glMesh) return;
+      var vx = Math.round(i*colW*dpr), vw = Math.round(colW*dpr);
+      gl.viewport(vx, 0, vw, cv.height); gl.enable(gl.SCISSOR_TEST); gl.scissor(vx, 0, vw, cv.height);
+      gl.uniform4f(loc('rot'), Math.cos(viewer.yaw), Math.sin(viewer.yaw), Math.cos(viewer.pitch), Math.sin(viewer.pitch));
+      gl.uniform4f(loc('tf'), scale, 0, viewer.panX, viewer.panY);
+      gl.uniform2f(loc('hs'), colW/2, Hh/2); gl.uniform1f(loc('mid'), ms.H/2); gl.uniform1f(loc('dr'), ms.H*2);
+      gl.uniform1f(loc('human'), ms.kind === 'nguoi' ? 1 : 0); gl.uniform4f(loc('band'), 0.40, 0.545, ms.fem ? 0.655 : 2.0, ms.fem ? 0.795 : 2.0);
+      [['p', ms.glMesh.p], ['n', ms.glMesh.n], ['c', ms.glMesh.c]].forEach(function(a){
+        var l = gl.getAttribLocation(pr, a[0]); gl.bindBuffer(gl.ARRAY_BUFFER, a[1]); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 3, gl.FLOAT, false, 0, 0);
+      });
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ms.glMesh.ibo || anny.ibo);
+      gl.drawElements(gl.TRIANGLES, ms.glMesh.nIdx || anny.nIdx, gl.UNSIGNED_SHORT, 0);
+    });
+    gl.disable(gl.SCISSOR_TEST);
+  }
+
+  function usedRatios(){
+    var r = Object.assign({}, state.cfgUsed.ratios), LV = state.agg && state.agg.levels;
+    if (LV) ['chest','waist','hip'].forEach(function(p){ if (LV[p]) r[p] = LV[p].r; });
+    return r;
+  }
+  function curSpec(){
+    var agg = state.agg, k = state.cal ? state.cal.k : 1, parts = {};
+    VD.PARTS.forEach(function(p){ var a = agg.parts[p]; parts[p] = a ? {w:a.width_cm*k, d:a.depth_cm*k} : null; });
+    return {H:state.heightUsed, loft:agg.loft.filter(function(l){ return l.w && l.d; }).map(function(l){ return {r:l.r, w:l.w*k, d:l.d*k}; }),
+            parts:parts, ratios:usedRatios(), shoulder:agg.shoulder_cm, neckRatio:state.cfgUsed.ratios.neck};
+  }
+  function targetScaleFn(spec){
+    var f = {};
+    TARGET_PARTS.forEach(function(p){ var c = state.cal.cm[p]; f[p] = (c && state.target[p]) ? state.target[p]/c : 1; });
+    return VD.targetScale(spec.ratios, f);
+  }
+  function updateAvatar(onlyTarget){
+    if (!state.agg) return;
+    var spec = curSpec(), useAnny = !!(anny.model && anny.gl) || !!(viewer.kind === 'nguoi' && body.T[sexKey(state.sexUsed)] && anny.gl);
+    if (viewer.kind === 'nguoi' && !body.T[sexKey(state.sexUsed)] && !body.failed[sexKey(state.sexUsed)]) loadBody(state.sexUsed, function(){ updateAvatar(); });
+    if (state.targetK !== state.cal.k){ state.target = null; state.targetK = state.cal.k; onlyTarget = false; }
+    if (!state.target){ state.target = {}; TARGET_PARTS.forEach(function(p){ state.target[p] = state.cal.cm[p]; }); buildSliders(); }
+    if (!(anny.model && anny.gl)) loadAnny();
+    if (!onlyTarget){
+      freeMesh(viewer.meshes.cur);
+      viewer.meshes.cur = useAnny ? buildDisplayMesh(spec, state.sexUsed) : VD.buildAvatar(spec);
+      if (useAnny){
+        var rms = viewer.meshes.cur.fitRmsCm;
+        $('fitInfo').textContent = viewer.meshes.cur.kind === 'nguoi'
+          ? 'Hình người (mẫu Innerscene, CC0) đã chỉnh theo số đo camera: chu vi 4 vòng trên hình lệch trung bình ' + fmt(rms, 1) + ' cm so với số đo.'
+          : 'Hình nhân chi tiết đã khớp với số đo camera: lệch trung bình ' + fmt(rms, 1) + ' cm ở các lát cắt thân và đùi.';
+      }
+    }
+    freeMesh(viewer.meshes.target);
+    var sf = targetScaleFn(spec);
+    if (useAnny) viewer.meshes.target = buildDisplayMesh(spec, state.sexUsed, sf);
+    else { spec.scale = sf; viewer.meshes.target = VD.buildAvatar(spec); }
+    if (state.prev && useAnny && viewer.meshes.prev && (!viewer.meshes.prev.glMesh || viewer.meshes.prev.kind !== viewer.meshes.cur.kind)) buildPrevMesh();
+    renderTargetOut();
+    viewer.dirty = true;
+  }
+  var targetPending = false;
+  function scheduleTarget(){ if (targetPending) return; targetPending = true; requestAnimationFrame(function(){ targetPending = false; updateAvatar(true); }); }
+  function viewParams(mesh, rect, scale){
+    return {cy:Math.cos(viewer.yaw), sy:Math.sin(viewer.yaw), cp:Math.cos(viewer.pitch), sp:Math.sin(viewer.pitch),
+            cx:rect.x + rect.w/2 + viewer.panX, cyS:rect.y + rect.h/2 + viewer.panY, mid:mesh.H/2};
+  }
+
+  function project(mesh, rect, scale){
+    var V = mesh.verts, n = V.length/3, P = new Float32Array(n*2), Zs = new Float32Array(n);
+    var cy = Math.cos(viewer.yaw), sy = Math.sin(viewer.yaw), cp = Math.cos(viewer.pitch), sp = Math.sin(viewer.pitch);
+    var mid = mesh.H/2, cx = rect.x + rect.w/2 + viewer.panX, cyS = rect.y + rect.h/2 + viewer.panY;
+    for (var i = 0; i < n; i++){
+      var x = V[3*i], y = V[3*i+1] - mid, z = V[3*i+2];
+      var x1 = x*cy + z*sy, z1 = -x*sy + z*cy;
+      var y2 = y*cp - z1*sp, z2 = y*sp + z1*cp;
+      P[2*i] = cx + x1*scale; P[2*i+1] = cyS - y2*scale; Zs[i] = z2;
+    }
+    return {P:P, Z:Zs, cy:cy, sy:sy, cp:cp, sp:sp, cx:cx, cyS:cyS, mid:mid};
+  }
+  function drawMesh(g, mesh, rect, scale){
+    var pr = project(mesh, rect, scale), Q = mesh.quads, Nn = mesh.normals, nq = Q.length/4, vis = [];
+    var L = [0.35, 0.55, 0.76];
+    for (var q = 0; q < nq; q++){
+      var nx = Nn[3*q], ny = Nn[3*q+1], nz = Nn[3*q+2];
+      var x1 = nx*pr.cy + nz*pr.sy, z1 = -nx*pr.sy + nz*pr.cy;
+      var y2 = ny*pr.cp - z1*pr.sp, z2 = ny*pr.sp + z1*pr.cp;
+      if (z2 <= -0.05) continue;
+      var a = Q[4*q], b = Q[4*q+1], c = Q[4*q+2], d = Q[4*q+3];
+      var depth = (pr.Z[a] + pr.Z[b] + pr.Z[c] + pr.Z[d])/4;
+      var lam = Math.max(0, x1*L[0] + y2*L[1] + z2*L[2]);
+      vis.push([depth, q, 0.34 + 0.66*lam]);
+    }
+    vis.sort(function(u, v){ return u[0] - v[0]; });
+    var P = pr.P;
+    for (var i = 0; i < vis.length; i++){
+      var qq = vis[i][1], sh = vis[i][2], base = BASE_RGB[mesh.tags[qq]] || BASE_RGB[0];
+      var col = 'rgb(' + Math.round(base[0]*sh) + ',' + Math.round(base[1]*sh) + ',' + Math.round(base[2]*sh) + ')';
+      var a2 = Q[4*qq], b2 = Q[4*qq+1], c2 = Q[4*qq+2], d2 = Q[4*qq+3];
+      g.beginPath(); g.moveTo(P[2*a2], P[2*a2+1]); g.lineTo(P[2*b2], P[2*b2+1]); g.lineTo(P[2*c2], P[2*c2+1]); g.lineTo(P[2*d2], P[2*d2+1]); g.closePath();
+      g.fillStyle = col; g.fill(); g.strokeStyle = col; g.lineWidth = 0.7; g.stroke();
+    }
+    if (viewer.rings) drawRings(g, mesh, rect, scale, pr);
+  }
+  function drawRings(g, mesh, rect, scale, pr){
+    var labels = [];
+    mesh.rings.forEach(function(rg){
+      var y = rg.r*mesh.H - pr.mid, seg = 64, pts = [];
+      for (var j = 0; j <= seg; j++){
+        var t = 2*Math.PI*j/seg, x = (rg.cx || 0) + rg.a*1.02*Math.cos(t), z = (rg.cz || 0) + rg.b*1.02*Math.sin(t);
+        var x1 = x*pr.cy + z*pr.sy, z1 = -x*pr.sy + z*pr.cy, y2 = y*pr.cp - z1*pr.sp, z2 = y*pr.sp + z1*pr.cp;
+        pts.push([pr.cx + x1*scale, pr.cyS - y2*scale, z2]);
+      }
+      g.lineWidth = 2.5; g.strokeStyle = COLORS[rg.part];
+      for (j = 0; j < seg; j++){
+        var A = pts[j], B = pts[j+1], front = (A[2] + B[2])/2 >= 0;
+        g.globalAlpha = front ? 1 : 0.25; g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.stroke();
+      }
+      g.globalAlpha = 1;
+      var right = pts.reduce(function(m, p){ return p[0] > m[0] ? p : m; }, pts[0]);
+      labels.push({y:right[1], x:right[0], t:cap(VD.NAMES[rg.part]) + ' ' + fmt(rg.circ, 1), c:COLORS[rg.part]});
+    });
+    labels.sort(function(a, b){ return a.y - b.y; });
+    var lx = rect.x + rect.w - 8, last = -99;
+    g.font = '600 12px system-ui'; g.textAlign = 'right';
+    labels.forEach(function(l){
+      var y = Math.max(l.y + 4, last + 16); last = y;
+      g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 1; g.beginPath(); g.moveTo(l.x + 4, l.y); g.lineTo(lx - g.measureText(l.t).width - 6, y - 4); g.stroke();
+      var tw = g.measureText(l.t).width;
+      g.fillStyle = 'rgba(14,16,18,.78)'; g.fillRect(lx - tw - 8, y - 14, tw + 12, 19);
+      g.fillStyle = l.c; g.fillRect(lx - tw - 8, y - 14, 3, 19);
+      g.fillStyle = '#E8ECEB'; g.fillText(l.t, lx, y);
+    });
+    g.textAlign = 'left';
+  }
+  function drawViewer(){
+    var cv = $('viewer'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, Hh = cv.clientHeight;
+    if (!W || !Hh) return;
+    if (cv.width !== Math.round(W*dpr) || cv.height !== Math.round(Hh*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(Hh*dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, Hh);
+    var pairs = [];
+    if (viewer.mode === 'target') pairs = [[viewer.meshes.cur, 'Hiện tại'], [viewer.meshes.target, 'Mục tiêu (mô phỏng)']];
+    else if (viewer.mode === 'prev' && viewer.meshes.prev) pairs = viewer.compareTitles ? [[viewer.meshes.prev, viewer.compareTitles[0]], [viewer.meshes.cur, viewer.compareTitles[1]]]
+      : [[viewer.meshes.prev, 'Lần trước · ' + (state.prev && state.prev.dateText || '')], [viewer.meshes.cur, 'Lần này']];
+    else pairs = [[viewer.meshes.cur, null]];
+    pairs = pairs.filter(function(p){ return p[0]; });
+    if (!pairs.length) return;
+    var Hmax = Math.max.apply(null, pairs.map(function(p){ return p[0].H; }));
+    var colW = W/pairs.length, scale = (Hh*0.86/Hmax)*viewer.zoom;
+    var useGL = anny.gl && pairs.every(function(p){ return p[0].glMesh; });
+    if (useGL) drawGLPairs(pairs, W, Hh, scale);
+    else if (anny.gl){ anny.gl.clearColor(0,0,0,0); anny.gl.clear(anny.gl.COLOR_BUFFER_BIT); }
+    pairs.forEach(function(p, i){
+      var rect = {x:i*colW, y:0, w:colW, h:Hh};
+      g.save(); g.beginPath(); g.rect(rect.x, rect.y, rect.w, rect.h); g.clip();
+      if (p[0].glMesh){ if (viewer.rings) drawRings(g, p[0], rect, scale, viewParams(p[0], rect, scale)); }
+      else drawMesh(g, p[0], rect, scale);
+      if (p[1]){ g.fillStyle = 'rgba(255,255,255,.85)'; g.font = '600 13px system-ui'; g.fillText(p[1], rect.x + 12, 22); }
+      g.restore();
+      if (i > 0){ g.strokeStyle = 'rgba(255,255,255,.12)'; g.beginPath(); g.moveTo(rect.x, 10); g.lineTo(rect.x, Hh - 10); g.stroke(); }
+    });
+  }
+  function startViewer(){
+    updateAvatar();
+    if (viewer.raf) return;
+    var loop = function(){
+      if (viewer.auto){ viewer.yaw += 0.008; viewer.dirty = true; }
+      if (viewer.dirty){ viewer.dirty = false; drawViewer(); }
+      viewer.raf = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  // Thao tác: 1 ngón/chuột kéo = xoay; 2 ngón = phóng to + di chuyển; cuộn chuột = phóng to
+  (function bindViewer(){
+    var cv = $('viewer'), ptrs = new Map(), pinch = null;
+    function stopAuto(){ if (viewer.auto){ viewer.auto = false; $('vAuto').textContent = 'Tự xoay: tắt'; } }
+    function pinchInfo(){ var a = Array.from(ptrs.values()); return {d:Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1, mx:(a[0].x + a[1].x)/2, my:(a[0].y + a[1].y)/2}; }
+    cv.addEventListener('pointerdown', function(e){
+      e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch(err){}
+      ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY}); stopAuto();
+      if (ptrs.size === 2){ var pi = pinchInfo(); pinch = {d:pi.d, mx:pi.mx, my:pi.my, zoom:viewer.zoom, panX:viewer.panX, panY:viewer.panY}; }
+    });
+    cv.addEventListener('pointermove', function(e){
+      if (!ptrs.has(e.pointerId)) return;
+      var old = ptrs.get(e.pointerId); ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      if (ptrs.size === 1){
+        viewer.yaw += (e.clientX - old.x)*0.01;
+        viewer.pitch = Math.max(-0.6, Math.min(0.6, viewer.pitch + (e.clientY - old.y)*0.006));
+      } else if (ptrs.size === 2 && pinch){
+        var pi = pinchInfo();
+        viewer.zoom = Math.max(0.6, Math.min(4, pinch.zoom*pi.d/pinch.d));
+        viewer.panX = pinch.panX + (pi.mx - pinch.mx); viewer.panY = pinch.panY + (pi.my - pinch.my);
+      }
+      viewer.dirty = true;
+    });
+    function up(e){ ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; }
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('pointerleave', function(e){ if (e.pointerType === 'mouse') up(e); });
+    cv.addEventListener('wheel', function(e){ e.preventDefault(); stopAuto(); viewer.zoom = Math.max(0.6, Math.min(4, viewer.zoom*Math.exp(-e.deltaY*0.0015))); viewer.dirty = true; }, {passive:false});
+    cv.addEventListener('dblclick', resetView);
+    window.addEventListener('resize', function(){ viewer.dirty = true; });
+  })();
+  function resetView(){ viewer.yaw = 0.5; viewer.pitch = 0.1; viewer.zoom = 1; viewer.panX = 0; viewer.panY = 0; viewer.dirty = true; }
+  $('vReset').onclick = resetView;
+  $('vAuto').onclick = function(){ viewer.auto = !viewer.auto; this.textContent = 'Tự xoay: ' + (viewer.auto ? 'bật' : 'tắt'); };
+  $('vRings').onchange = function(){ viewer.rings = this.checked; viewer.dirty = true; };
+  $('vKind').onchange = function(){ viewer.kind = this.value; if (state.agg) updateAvatar(); if (viewer.cmpData) viewer.cmpData(); };
+  function setViewMode(m){
+    viewer.mode = m;
+    ['cur','target','prev'].forEach(function(x){ $('vm_' + x).classList.toggle('on', x === m); });
+    $('targetPanel').classList.toggle('hidden', m !== 'target');
+    $('prevPanel').classList.toggle('hidden', m !== 'prev');
+    viewer.dirty = true;
+  }
+  ['cur','target','prev'].forEach(function(x){ $('vm_' + x).onclick = function(){ setViewMode(x); }; });
+
+  // ---- Mục tiêu (mô phỏng) ----
+  function buildSliders(){
+    var box = $('sliders'); box.innerHTML = '';
+    TARGET_PARTS.forEach(function(p){
+      var c = state.cal.cm[p];
+      var row = document.createElement('div'); row.className = 'sl';
+      if (!c){ row.innerHTML = '<div class="slh"><span><span class="dot" style="background:' + COLORS[p] + '"></span>' + cap(VD.NAMES[p]) + '</span><span class="small">không đo được</span></div>'; box.appendChild(row); return; }
+      var lo = Math.max(30, Math.floor(c - 20)), hi = Math.ceil(c + 10);
+      row.innerHTML = '<div class="slh"><span><span class="dot" style="background:' + COLORS[p] + '"></span>' + cap(VD.NAMES[p]) + '</span><span class="num" id="slv_' + p + '"></span></div>' +
+        '<input type="range" id="sl_' + p + '" min="' + lo + '" max="' + hi + '" step="0.5" value="' + (Math.round(state.target[p]*2)/2) + '">';
+      box.appendChild(row);
+      $('sl_' + p).addEventListener('input', function(){ state.target[p] = +this.value; scheduleTarget(); });
+    });
+  }
+  $('btnTargetReset').onclick = function(){ state.target = null; updateAvatar(); };
+  function renderTargetOut(){
+    var inp = inputs(), cm = state.cal.cm, t = {};
+    TARGET_PARTS.forEach(function(p){
+      var c = cm[p], el = $('slv_' + p); if (!c || !el) return;
+      var d = state.target[p] - c; el.textContent = fmt(c) + ' → ' + fmt(state.target[p]) + ' cm (' + (d > 0 ? '+' : '') + fmt(d) + ')';
+    });
+    var bfNow = state.comp && state.comp.bfVideo;
+    var bfT = VD.navy(inp.sex, state.heightUsed, cm.neck, state.target.waist || cm.waist, state.target.hip || cm.hip);
+    $('targetOut').innerHTML = '% mỡ ước tính (Navy) khi đạt các vòng mục tiêu: <b>' + (bfT != null && bfNow != null ? fmt(bfT) + '%' : '—') + '</b>' +
+      (bfNow != null ? ' · hiện tại ' + fmt(bfNow) + '%' : ' · chưa có % mỡ hiện tại hợp lệ');
+  }
+
+  // ---- So với lần đo trước ----
+  $('btnPrev').onclick = function(){ $('prevFile').click(); };
+  $('prevFile').onchange = function(){
+    var f = this.files && this.files[0]; this.value = ''; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){
+      var obj = null; try { obj = JSON.parse(rd.result); } catch(e){}
+      if (!obj || obj.schema !== 'vfl.alpha_scan.circumference_video.v0' || !obj.circumferences_cm){
+        $('prevMsgs').innerHTML = '<div class="msg bad">File này không phải kết quả đo vòng của Alpha Scan.</div>'; return;
+      }
+      state.prev = obj; state.prev.fileName = f.name;
+      var dt = obj.measured_at ? new Date(obj.measured_at) : null;
+      state.prev.dateText = dt && !isNaN(dt) ? dt.toLocaleDateString('vi-VN') : '';
+      buildPrevMesh(); renderPrev();
+    };
+    rd.readAsText(f);
+  };
+  function meshFromJson(o){
+    var sp = o && o.shape_profile;
+    if (!sp || !sp.loft || !o.subject || !(o.subject.height_cm > 0)) return null;
+    var k = (o.calibration && o.calibration.k) || 1, parts = {};
+    VD.PARTS.forEach(function(p){ var c = o.circumferences_cm[p]; parts[p] = c && c.width_cm ? {w:c.width_cm, d:c.depth_cm} : null; });
+    var rat = (o.provenance && o.provenance.height_ratios) || VD.DEFAULT_CFG.ratios;
+    var pspec = {H:o.subject.height_cm, loft:sp.loft.map(function(l){ return {r:l[0], w:l[1]*k, d:l[2]*k}; }), parts:parts, ratios:rat, shoulder:sp.shoulder_cm, neckRatio:rat.neck};
+    return (anny.gl && (anny.model || body.T[sexKey(o.subject.sex)])) ? buildDisplayMesh(pspec, o.subject.sex) : VD.buildAvatar(pspec);
+  }
+  function buildPrevMesh(){
+    var o = state.prev, sp = o.shape_profile;
+    viewer.meshes.prev = null;
+    if (!sp || !sp.loft || !o.subject || !(o.subject.height_cm > 0)) { viewer.dirty = true; return; }
+    var k = (o.calibration && o.calibration.k) || 1, parts = {};
+    VD.PARTS.forEach(function(p){ var c = o.circumferences_cm[p]; parts[p] = c && c.width_cm ? {w:c.width_cm, d:c.depth_cm} : null; });
+    var rat = (o.provenance && o.provenance.height_ratios) || VD.DEFAULT_CFG.ratios;
+    var pspec = {H:o.subject.height_cm, loft:sp.loft.map(function(l){ return {r:l[0], w:l[1]*k, d:l[2]*k}; }),
+      parts:parts, ratios:rat, shoulder:sp.shoulder_cm, neckRatio:rat.neck};
+    freeMesh(viewer.meshes.prev);
+    if (viewer.kind === 'nguoi' && !body.T[sexKey(o.subject.sex)] && !body.failed[sexKey(o.subject.sex)]) loadBody(o.subject.sex, buildPrevMesh);
+    viewer.meshes.prev = (anny.gl && (anny.model || body.T[sexKey(o.subject.sex)])) ? buildDisplayMesh(pspec, o.subject.sex) : VD.buildAvatar(pspec);
+    viewer.dirty = true;
+  }
+  function renderPrev(){
+    var o = state.prev; if (!o || !state.cal) return;
+    $('prevName').textContent = o.fileName + (o.dateText ? ' · đo ngày ' + o.dateText : '');
+    var msgs = [], modeA = o.capture_mode || 'video_rotation', modeB = state.captureMode;
+    if (modeA !== modeB) msgs.push({lv:'warn', t:'Hai lần đo dùng cách chụp khác nhau (' + (modeA === 'photos_4' ? '4 ảnh' : 'video') + ' và ' + (modeB === 'photos_4' ? '4 ảnh' : 'video') + '): chênh lệch có thể do phương pháp, chỉ để tham khảo.'});
+    if (o.subject && Math.abs(o.subject.height_cm - state.heightUsed) > 1) msgs.push({lv:'warn', t:'Chiều cao nhập ở hai lần khác nhau (' + fmt(o.subject.height_cm) + ' và ' + fmt(state.heightUsed) + ' cm): kiểm tra lại, vì mọi số đo quy đổi theo chiều cao.'});
+    var srcA = o.calibration && o.calibration.source, srcB = state.cal.source;
+    if (srcA && srcA !== srcB) msgs.push({lv:'warn', t:'Hai lần hiệu chuẩn theo cách khác nhau (' + srcA + ' và ' + srcB + '): nên dùng cùng một vòng làm mốc.'});
+    if (o.measured_at && state.analyzedAt && o.measured_at > state.analyzedAt) msgs.push({lv:'warn', t:'File được chọn có thời điểm đo sau lần này.'});
+    if (!viewer.meshes.prev) msgs.push({lv:'warn', t:'File từ bản cũ, chưa có dữ liệu hình dáng: chỉ so được số đo, không dựng được hình lần trước.'});
+    if (!msgs.length) msgs.push({lv:'ok', t:'Cùng cách chụp, cùng chiều cao, cùng cách hiệu chuẩn: so sánh được.'});
+    $('prevMsgs').innerHTML = msgs.map(function(m){ return '<div class="msg ' + m.lv + '">' + m.t + '</div>'; }).join('');
+    var rows = '<tr><th>Vòng</th><th>Lần trước</th><th>Lần này</th><th>Chênh lệch</th></tr>';
+    VD.PARTS.forEach(function(p){
+      var a = o.circumferences_cm[p] && o.circumferences_cm[p].calibrated_cm, b = state.cal.cm[p];
+      var d = (a != null && b != null) ? b - a : null;
+      rows += '<tr><td><span class="dot" style="background:' + COLORS[p] + '"></span>' + cap(VD.NAMES[p]) + '</td><td class="num">' + fmt(a) + '</td><td class="num">' + fmt(b) + '</td><td class="num">' + (d == null ? '—' : (d > 0 ? '+' : '') + fmt(d)) + '</td></tr>';
+    });
+    var bc = o.body_composition || {}, bfA = bc.body_fat_pct_camera_navy != null ? bc.body_fat_pct_camera_navy : bc.body_fat_pct_video_navy, bfB = state.comp && state.comp.bfVideo;
+    var dbf = (bfA != null && bfB != null) ? bfB - bfA : null;
+    rows += '<tr><td>% mỡ (Navy)</td><td class="num">' + fmt(bfA) + '</td><td class="num">' + fmt(bfB) + '</td><td class="num">' + (dbf == null ? '—' : (dbf > 0 ? '+' : '') + fmt(dbf)) + '</td></tr>';
+    $('prevTbl').innerHTML = rows;
+  }
+
+  // ---- JSON ----
+  function buildJson(){
+    var inp = inputs(), agg = state.agg, cal = state.cal, comp = state.comp, parts = {};
+    VD.PARTS.forEach(function(p){
+      var a = agg.parts[p];
+      parts[p] = a ? {raw_cm:r1(a.raw_cm), calibrated_cm:r1(cal.cm[p]), width_cm:r1(a.width_cm*cal.k), depth_cm:r1(a.depth_cm*cal.k), frames_used:a.n, tape_cm: inp.tape[p] > 0 ? inp.tape[p] : null} : null;
+    });
+    return {
+      schema:'vfl.alpha_scan.circumference_video.v0',
+      status:'provisional', storage:'LOCAL_ONLY', video_stored:false, face_stored:false, landmarks_stored:false,
+      disclaimer:'Wellness screening estimate, not a medical diagnosis (LP-5).',
+      measured_at: state.analyzedAt,
+      subject:{sex:inp.sex, height_cm:state.heightUsed, weight_kg: inp.weight > 0 ? inp.weight : null, age: inp.age > 0 ? inp.age : null},
+      circumferences_cm: parts,
+      shape_profile:{units:'cm, chưa nhân hệ số hiệu chuẩn k', loft: agg.loft.filter(function(l){ return l.w && l.d; }).map(function(l){ return [l.r, r1(l.w), r1(l.d)]; }), shoulder_cm: r1(agg.shoulder_cm)},
+      calibration:{k:+cal.k.toFixed(4), source:cal.source, mae_vs_tape_cm: cal.mae != null ? r1(cal.mae) : null, parts_compared:cal.nCompared},
+      body_composition:{
+        body_fat_pct_camera_navy: r1(comp.bfVideo), body_fat_pct_camera_navy_raw: r1(comp.bfVideoRaw), navy_offset_points: comp.navyOffset || 0,
+        waist_to_height: cal.cm.waist ? Math.round(cal.cm.waist/state.heightUsed*1000)/1000 : null, body_fat_source: state.captureMode === 'photos_4' ? 'navy_from_photo_circumference' : 'navy_from_video_circumference',
+        body_fat_pct_tape_navy: r1(comp.bfTape), body_fat_pct_inbody: comp.inbody, body_fat_pct_deurenberg: r1(comp.deurenberg), bmi: r1(comp.bmi)
+      },
+      capture_mode: state.captureMode,
+      qa:{views: agg.views || null, frames_total:agg.nFrames, frames_valid:agg.nValid, rejected:agg.reasons, height_px_cv: agg.heightCV != null ? +agg.heightCV.toFixed(3) : null,
+          rotation_ratio_chest: agg.parts.chest ? +agg.parts.chest.rotation_ratio.toFixed(3) : null, warnings:agg.warnings.map(function(w){ return w.t; })},
+      provenance:{engine_version:VD.VERSION, method: state.captureMode === 'photos_4' ? 'silhouette_front_side_ellipse_4photos (no SMPL-X)' : 'silhouette_p90_p10_ellipse (port of body-scan-smplx torso method, no SMPL-X)',
+        pose_model_version:'mediapipe_pose_landmarker (' + (state.cfgUsed.modelUrl.split('/').slice(-4,-3)[0] || 'custom') + ')',
+        height_ratios: usedRatios(), measurement_levels: agg.levels || null, frame_step_s: state.captureMode === 'photos_4' ? null : state.cfgUsed.frameStep, proc_height_px: state.captureMode === 'photos_4' ? state.cfgUsed.photoHeight : state.cfgUsed.procHeight,
+        processing_seconds: r1(state.procSeconds), source_label: state.captureMode === 'photos_4' ? 'photos' : (state.source === 'Video vừa quay' ? 'camera' : 'file'), user_agent:null}
+    };
+  }
+  function r1(v){ return (v == null || !isFinite(v)) ? null : Math.round(v*10)/10; }
+  function renderJson(){ $('jsonOut').textContent = JSON.stringify(buildJson(), null, 2); }
+  $('btnDl').onclick = function(){
+    var blob = new Blob([JSON.stringify(buildJson(), null, 2)], {type:'application/json'});
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'do-vong-video-' + (state.analyzedAt || '').slice(0,19).replace(/[:T]/g,'-') + '.json';
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  };
+  $('btnCopy').onclick = async function(){
+    try { await navigator.clipboard.writeText(JSON.stringify(buildJson(), null, 2)); $('copyMsg').textContent = 'Đã sao chép.'; }
+    catch(e){ $('copyMsg').textContent = 'Trình duyệt chặn sao chép; mở mục "Xem nội dung JSON" để chép tay.'; }
+  };
+
+  // ===== Chế độ nhúng trong Alpha Scan Lab =====
+  var EMB = (function(){ try { var p = new URLSearchParams(location.search); if (p.get('embed') !== '1') return null;
+    return {h:p.get('h'), sex:p.get('sex'), w:p.get('w'), age:p.get('age'), pid:p.get('pid')}; } catch(e){ return null; } })();
+  var PK_KEY = 'alphascan_vongdo_k_v1';
+  function personalK(){ if (!EMB || !EMB.pid) return null; try { var o = JSON.parse(localStorage.getItem(PK_KEY) || '{}'); return o[EMB.pid] || null; } catch(e){ return null; } }
+  function savePersonalK(k, anchor){ if (!EMB || !EMB.pid) return; try { var o = JSON.parse(localStorage.getItem(PK_KEY) || '{}'); o[EMB.pid] = {k:+k.toFixed(4), anchor:anchor, at:new Date().toISOString()}; localStorage.setItem(PK_KEY, JSON.stringify(o)); } catch(e){} }
+  function toParent(msg){ try { window.parent.postMessage(msg, location.origin); } catch(e){} }
+  function renderUse(failed, calibrated){
+    if (!EMB) return;
+    var c = state.cal.cm, male = state.sexUsed === 'male', why = [];
+    if (failed) why.push('video/ảnh chưa đạt, hãy quay hoặc chụp lại');
+    if (!calibrated) why.push('cần hiệu chuẩn một lần: nhập vòng eo đo bằng thước ở mục 5 và chọn "Eo" làm mốc');
+    if (!c.neck || !c.waist || (!male && !c.hip)) why.push('chưa đo được đủ cổ, eo' + (male ? '' : ', hông'));
+    $('btnUse').disabled = why.length > 0;
+    $('useHint').textContent = why.length ? 'Chưa dùng được: ' + why.join('; ') + '.' : (state.cal.source === 'personal' ? 'Dùng hệ số hiệu chuẩn riêng đã lưu cho khách này, không cần đo thước lại.' : 'Số đo sẽ được điền vào Body Scan và tính % mỡ.');
+  }
+  if (EMB){
+    $('embedBar').classList.remove('hidden'); $('useRow').classList.remove('hidden'); $('profileCard').classList.add('hidden');
+    if (EMB.h) $('height').value = EMB.h; if (EMB.sex === 'male' || EMB.sex === 'female') $('sex').value = EMB.sex;
+    if (EMB.w) $('weight').value = EMB.w; if (EMB.age) $('age').value = EMB.age;
+    var pk0 = personalK();
+    $('embedWho').textContent = 'Hồ sơ Alpha Scan: ' + (EMB.sex === 'male' ? 'Nam' : 'Nữ') + ' · ' + EMB.h + ' cm' + (pk0 ? ' · đã hiệu chuẩn ngày ' + new Date(pk0.at).toLocaleDateString('vi-VN') : ' · chưa hiệu chuẩn');
+    $('btnBack').onclick = function(){ toParent({type:'vongdo_close'}); };
+    $('btnUse').onclick = function(){
+      var inp = inputs(), cm = state.cal.cm, r = function(v){ return v == null || !isFinite(v) ? null : Math.round(v*10)/10; };
+      if (state.cal.source.indexOf('anchor:') === 0) savePersonalK(state.cal.k, inp.anchor);
+      toParent({type:'alphascan_body', neck:r(cm.neck), chest:r(cm.chest), waist:r(cm.waist), hip:r(cm.hip),
+        source:'Camera AI (' + (state.captureMode === 'photos_4' ? '4 ảnh' : 'video 360°') + ')',
+        meta:{engine:VD.VERSION, capture_mode:state.captureMode, calibration:{k:+state.cal.k.toFixed(4), source:state.cal.source},
+              levels:usedRatios(), measured_at:state.analyzedAt, frames_valid:state.agg.nValid, result:buildJson()}});
+    };
+    updateRunBtn();
+  }
+  // ===== Chế độ so sánh hình nhân 2 buổi (mở từ "Hồ sơ khách & Tiến trình" của Alpha Scan) =====
+  var CMP = (function(){ try { return new URLSearchParams(location.search).get('compare') === '1'; } catch(e){ return false; } })();
+  if (CMP){
+    document.querySelectorAll('section.card').forEach(function(c){ c.classList.add('hidden'); });
+    $('vizCard').classList.remove('hidden'); $('embedBar').classList.remove('hidden');
+    $('embedWho').textContent = 'So sánh hình nhân hai buổi đánh giá';
+    document.querySelector('header h1').textContent = 'So sánh hình nhân 3D';
+    document.querySelector('header p').textContent = 'Hình nhân dựng lại từ số đo camera đã lưu của từng buổi. Hình bề ngoài, không phải mô hình giải phẫu.';
+    document.querySelector('header .tags').classList.add('hidden');
+    $('vm_cur').parentNode.classList.add('hidden');
+    document.querySelector('#vizCard h2').textContent = 'Hình nhân 3D hai buổi';
+    $('btnBack').onclick = function(){ toParent({type:'vongdo_close'}); };
+    window.addEventListener('message', function(e){
+      if (e.origin !== location.origin) return; var d = e.data || {};
+      if (d.type !== 'vongdo_compare' || !d.a || !d.b) return;
+      viewer.compareTitles = d.titles || ['Buổi A', 'Buổi B'];
+      var build = function(){
+        freeMesh(viewer.meshes.prev); freeMesh(viewer.meshes.cur);
+        viewer.meshes.prev = meshFromJson(d.a); viewer.meshes.cur = meshFromJson(d.b);
+        if (!viewer.meshes.prev || !viewer.meshes.cur){ $('fitInfo').textContent = 'Thiếu dữ liệu hình dáng của một buổi (buổi đo bằng bản cũ hoặc bằng thước).'; return; }
+        setViewMode('prev'); $('prevPanel').classList.add('hidden');
+        $('fitInfo').textContent = (viewer.meshes.cur.kind === 'nguoi' ? 'Hai hình người' : 'Hai hình nhân') + ' dựng từ số đo camera đã hiệu chuẩn của từng buổi.';
+        if (!viewer.raf){ var loop = function(){ if (viewer.auto){ viewer.yaw += 0.008; viewer.dirty = true; } if (viewer.dirty){ viewer.dirty = false; drawViewer(); } viewer.raf = requestAnimationFrame(loop); }; loop(); }
+        viewer.dirty = true;
+      };
+      viewer.cmpData = build;
+      var sxs = [d.a, d.b].map(function(o){ return o && o.subject ? sexKey(o.subject.sex) : 'female'; });
+      sxs.forEach(function(k){ loadBody(k); }); loadAnny();
+      var ready = function(){ return anny.gl && (viewer.kind !== 'nguoi' ? (anny.model || anny.failed) : sxs.every(function(k){ return body.T[k] || body.failed[k]; })); };
+      var waited = 0, tick = function(){ if (ready() || anny.failed && sxs.every(function(k){ return body.failed[k]; }) || waited > 20000){ build(); } else { waited += 150; setTimeout(tick, 150); } };
+      tick();
+    });
+    toParent({type:'vongdo_ready'});
+  }
+  window.__VD_STATE = state; window.__VD_VIEWER = viewer;
+  updateRunBtn();
+})();
+</script>
+</body>
+</html>

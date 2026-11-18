@@ -1,0 +1,18 @@
+Alpha Scan - Do vong bang camera (VFL HealthTech)
+
+Hinh nhan 3D (vfl_anny_body_v1.bin) chua du lieu dan xuat tu:
+- Anny, Copyright (C) 2025 NAVER Corporation. Apache License, Version 2.0 (xem LICENSE-Anny.txt).
+  Thay doi: VFL lay mau dang nguoi truong thanh tu mo hinh Anny va nen thanh bo thanh phan chinh (PCA) de chay tren trinh duyet.
+- Tai san MakeHuman / MPFB2: CC0 1.0 Universal.
+Khong dung goi "smplx topology" (phi thuong mai) cua Anny.
+Nhan dien tu the: MediaPipe (Google), Apache License 2.0, tai tu CDN khi chay.
+
+Mo hinh giai phau nam/nu (thu muc giaiphau/models, giaiphau/maps):
+- "Z-Anatomy - The libre 3D atlas of anatomy - CC-BY-SA 4.0"
+- "BodyParts3D, (c) The Database Center for Life Science licensed under CC Attribution 4.0 International"
+  Chi tiet va nghia vu ShareAlike: giaiphau/ATTRIBUTION.txt (KHONG duoc xoa).
+- Three.js, GLTFLoader, OrbitControls: MIT.
+
+Hinh nguoi 3D (vfl_body_nam_v1.bin, vfl_body_nu_v1.bin):
+- Doi tu mau be mat "base mesh" cua Innerscene Corp (innerscene.com), CC0 1.0 Universal (public domain) - ghi trong file goc.
+  Khong bat buoc ghi cong; VFL ghi lai de truy nguon. Thay doi: chuyen dinh dang, luong tu 16 bit, chinh theo so do camera.
