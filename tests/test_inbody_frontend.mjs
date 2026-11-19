@@ -4,8 +4,10 @@ import test from 'node:test';
 
 const html = fs.readFileSync(new URL('../frontend_lab/index.html', import.meta.url), 'utf8');
 
-test('InBody UI calls the Alpha Scan multipart endpoint and does not retain source base64', () => {
-  assert.match(html, /AlphaPlusPro\.loadCfg\(\)/);
+test('InBody UI calls the inbody-extract Edge Function with the coach session and does not retain source base64', () => {
+  assert.match(html, /\/functions\/v1\/inbody-extract\/api\/v1\/inbody\/extract/);
+  assert.match(html, /auth\.getSession\(\)/);
+  assert.match(html, /access_token/);
   assert.match(html, /new FormData\(\)/);
   assert.match(html, /\/api\/v1\/inbody\/extract/);
   assert.match(html, /form\.append\('consent_granted','true'\)/);

@@ -357,6 +357,8 @@ const I18N={ vi:{
   ib_noclient:'Please create/identify a client first (Step 1).', ib_has_sheet:'(sheet already attached)',
   ib_req:'⚠ Missing required data: Weight + PBF. The system will not save when these are missing.', ib_pbf_range:'⚠ PBF out of valid range (3–70%). Please check.',
   ib_ocr_nofile:'No sheet image selected. Tap "Choose sheet image/PDF" first.',
+  ib_ocr_needlogin:'Sign in with a coach account (Connect button) before using AI extraction.',
+  ib_ocr_nolab:'Supabase core is not configured. Open ⚙ Connect.',
   ib_ocr_pdf:'PDF is sent to the Alpha Scan server for extraction and is not stored after processing.',
   ib_ocr_loading:'Loading the recogniser & reading the sheet… (needs Internet the first time)',
   tg_forecast:'FORECAST', dm_forecast_sub:'Forecast when the goal is reached (AI)', dm_session:'Measurement', dm_goal_t:'InBody goal', dm_goal_weight:'Target weight', dm_goal_wfc:'Weight / fat / muscle',
@@ -2209,21 +2211,23 @@ async function ocrInBody(){ const msg=$('#ib_ocrmsg'); const EN=(LANG==='en');
   if(!__ibFile){ msg.textContent=t('ib_ocr_nofile','Chưa chọn ảnh phiếu. Bấm "Chọn ảnh/PDF phiếu" trước.'); return; }
   const cns=$('#ib_ai_consent');
   if(!cns||!cns.checked){ msg.innerHTML='⚠ '+t('ib_ocr_needconsent','Hãy tích ô đồng ý gửi ảnh phiếu tới dịch vụ AI để trích số (dữ liệu sức khỏe) trước.'); return; }
-  const cfg=(window.AlphaPlusPro&&typeof AlphaPlusPro.loadCfg==='function')?AlphaPlusPro.loadCfg():{url:(location.origin||''),apiKey:''};
-  const base=String((cfg&&cfg.url)||'').replace(/\/$/,''); const key=String((cfg&&cfg.apiKey)||'');
-  if(!base){ msg.innerHTML='⚠ '+t('ib_ocr_nocore','Chưa cấu hình Server Alpha Scan. Mở ⚙ Kết nối → Server 3D Alpha Scan Plus/PRO.'); return; }
+  // Trích InBody chạy trên Supabase Edge Function "inbody-extract" của lõi (AK.cfg.url) — tách khỏi Server 3D.
+  // Xác thực bằng phiên đăng nhập coach; quyền do asl_can_use() phía server quyết định.
+  if(typeof AK!=='object'||!AK.cfg||!AK.cfg.url||!AK.cfg.anonKey){ msg.innerHTML='⚠ '+t('ib_ocr_nolab','Chưa cấu hình lõi Supabase. Mở ⚙ Kết nối.'); return; }
+  let token=null; try{ const c=await akClient(); const ss=await c.auth.getSession(); token=ss&&ss.data&&ss.data.session&&ss.data.session.access_token; }catch(_){}
+  if(!token){ msg.innerHTML='⚠ '+t('ib_ocr_needlogin','Hãy đăng nhập tài khoản coach (nút Kết nối) trước khi trích số bằng AI.'); return; }
+  const endpoint=String(AK.cfg.url).replace(/\/+$/,'')+'/functions/v1/inbody-extract/api/v1/inbody/extract';
   msg.textContent=t('ib_ocr_sending','Đang gửi phiếu tới dịch vụ AI để trích số…');
   const btn=$('#ib_ocr'); if(btn)btn.disabled=true;
   const ctrl=new AbortController(), timer=setTimeout(()=>ctrl.abort(),65000);
   try{
     const form=new FormData(); form.append('file',__ibFile,__ibFile.name||'inbody-upload'); form.append('consent_granted','true');
-    const headers={}; if(key)headers.Authorization='Bearer '+key;
-    if(/ngrok/i.test(base))headers['ngrok-skip-browser-warning']='true';
-    const r=await fetch(base+'/api/v1/inbody/extract',{method:'POST',headers:headers,body:form,signal:ctrl.signal});
+    const headers={Authorization:'Bearer '+token, apikey:AK.cfg.anonKey};
+    const r=await fetch(endpoint,{method:'POST',headers:headers,body:form,signal:ctrl.signal});
     let j=null; try{ j=await r.json(); }catch(_){}
     if(!r.ok||!j||!j.ok){
       const detail=(j&&(j.detail||j.error))||('HTTP '+r.status);
-      const hint=r.status===401?'Kiểm tra API Key của Server Alpha Scan.':r.status===429?'OpenAI đã hết quota hoặc bị giới hạn tốc độ.':r.status===504?'OCR quá 60 giây; thử ảnh rõ hơn hoặc ảnh đã cắt sát phiếu.':r.status===503?'Server chưa cấu hình OPENAI_API_KEY hoặc dịch vụ AI đang gián đoạn.':'Kiểm tra file rồi thử lại hoặc nhập tay.';
+      const hint=r.status===401?'Đăng nhập lại tài khoản coach (nút Kết nối).':r.status===403?'Liên hệ quản trị để được cấp quyền Alpha Scan Lab.':r.status===429?'OpenAI đã hết quota hoặc bị giới hạn tốc độ.':r.status===504?'OCR quá 60 giây; thử ảnh rõ hơn hoặc ảnh đã cắt sát phiếu.':r.status===503?'Function inbody-extract chưa cấu hình OPENAI_API_KEY hoặc dịch vụ AI đang gián đoạn.':'Kiểm tra file rồi thử lại hoặc nhập tay.';
       msg.textContent='⚠ '+t('ib_ocr_fail','Không trích được số')+': '+detail+'. '+hint; return;
     }
     const d=j.data||{};

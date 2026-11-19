@@ -2,15 +2,17 @@
 // Port của bodyscan_pipeline/inbody_ocr.py + route POST /api/v1/inbody/extract trong api_server.py.
 // Giữ nguyên contract request/response để frontend_lab không phải sửa.
 //
-// Secrets cần đặt (Supabase Dashboard → Edge Functions → Secrets):
+// Xác thực: "Authorization: Bearer <access_token của coach đã đăng nhập Supabase>".
+// Quyền dùng do RPC public.asl_can_use() quyết định (cùng cổng với Alpha Scan Lab).
+//
+// Secrets (Supabase Dashboard → Edge Functions → Secrets):
 //   OPENAI_API_KEY        bắt buộc
-//   INBODY_API_KEY        bắt buộc — khoá mà frontend gửi qua "Authorization: Bearer ..."
+//   INBODY_API_KEY        tuỳ chọn — khoá dịch vụ để test/máy chủ gọi máy chủ; bỏ đi khi không cần
 //   OPENAI_INBODY_MODEL   tuỳ chọn (mặc định gpt-5.6-luna)
 //   INBODY_OCR_TIMEOUT_SECONDS tuỳ chọn (mặc định 60)
+// SUPABASE_URL / SUPABASE_ANON_KEY do Supabase tự cấp.
 //
-// URL dùng trong ⚙ Kết nối của Alpha Scan:
-//   https://<project-ref>.supabase.co/functions/v1/inbody-extract
-// Frontend tự nối thêm /api/v1/inbody/extract và /health.
+// Endpoint: https://<project-ref>.supabase.co/functions/v1/inbody-extract/api/v1/inbody/extract
 
 const PROMPT = `You extract measurements from exactly one InBody body-composition report.
 
@@ -327,15 +329,51 @@ async function callOpenAI(
   }
 }
 
-function checkAuth(req: Request, expected: string): boolean {
+function bearerToken(req: Request): string {
   const h = req.headers.get("authorization") || "";
-  const token = h.toLowerCase().startsWith("bearer ")
+  return h.toLowerCase().startsWith("bearer ")
     ? h.slice(7).trim()
     : (req.headers.get("x-api-key") || "").trim();
-  if (!token || token.length !== expected.length) return false;
+}
+
+function safeEqual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < token.length; i++) diff |= token.charCodeAt(i) ^ expected.charCodeAt(i);
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/** Cho phép khi: (1) token = INBODY_API_KEY (nếu có đặt), hoặc (2) coach đăng nhập có asl_can_use().can_use. */
+async function authorize(req: Request, serviceKey: string, env: (k: string) => string): Promise<string> {
+  const token = bearerToken(req);
+  if (!token) throw new InBodyError("Chưa đăng nhập tài khoản coach.", 401);
+  if (serviceKey && safeEqual(token, serviceKey)) return "service_key";
+
+  const supaUrl = env("SUPABASE_URL").replace(/\/+$/, "");
+  const anon = env("SUPABASE_ANON_KEY") || (req.headers.get("apikey") || "").trim();
+  if (!supaUrl || !anon) throw new InBodyError("Function thiếu cấu hình SUPABASE_URL/ANON_KEY.", 503);
+
+  let r: Response;
+  try {
+    r = await fetch(`${supaUrl}/rest/v1/rpc/asl_can_use`, {
+      method: "POST",
+      headers: { apikey: anon, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch {
+    throw new InBodyError("Không kiểm tra được quyền tài khoản (lỗi kết nối).", 503);
+  }
+  if (r.status === 401 || r.status === 403) {
+    throw new InBodyError("Phiên đăng nhập không hợp lệ hoặc đã hết hạn.", 401);
+  }
+  if (!r.ok) throw new InBodyError(`Không kiểm tra được quyền tài khoản (HTTP ${r.status}).`, 503);
+  const a = await r.json().catch(() => null);
+  if (!a || a.can_use !== true) {
+    const reason = a?.reason || "not_granted";
+    if (reason === "not_logged_in") throw new InBodyError("Chưa đăng nhập tài khoản coach.", 401);
+    throw new InBodyError(`Tài khoản chưa được cấp quyền dùng Alpha Scan Lab (${reason}).`, 403);
+  }
+  return String(a.reason || "granted");
 }
 
 export async function handle(req: Request): Promise<Response> {
@@ -355,14 +393,14 @@ export async function handle(req: Request): Promise<Response> {
       model_ready: true,
       mode: "inbody_only",
       auth_required: true,
+      auth_mode: "supabase_session",
       inbody_ocr: { enabled: Boolean(openaiKey), provider: "openai", model, timeout_seconds: timeoutSec },
     });
   }
 
   if (req.method === "POST" && path.endsWith("/inbody/extract")) {
     try {
-      if (!serviceKey) throw new InBodyError("Server chưa cấu hình INBODY_API_KEY.", 503);
-      if (!checkAuth(req, serviceKey)) throw new InBodyError("Sai hoặc thiếu API key.", 401);
+      await authorize(req, serviceKey, env);
       if (!openaiKey) throw new InBodyError("OPENAI_API_KEY chưa được cấu hình trên server.", 503);
 
       let form: FormData;
