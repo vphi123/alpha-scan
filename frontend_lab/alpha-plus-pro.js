@@ -871,7 +871,13 @@
       const normSaved = savedUrl.replace(/\/+$/, '').toLowerCase();
       const normCurr = currentOrigin.replace(/\/+$/, '').toLowerCase();
       if (normSaved === normCurr) return false;
-      if (host.endsWith('.trycloudflare.com') || /ngrok|loca\.lt|gradio\.live/i.test(host)) {
+      // Chỉ coi URL tunnel đã lưu là "cũ" khi trang hiện tại cũng đang chạy trên một tunnel
+      // (backend tự phục vụ frontend). Trên host tĩnh như Netlify, origin hiện tại KHÔNG phải
+      // backend nên không được ghi đè URL server mà người dùng đã cấu hình.
+      const isTunnelHost = (h) => /\.trycloudflare\.com$/i.test(h) || /ngrok|loca\.lt|gradio\.live/i.test(h);
+      let curHost = '';
+      try { curHost = (new URL(currentOrigin).hostname || '').toLowerCase(); } catch (_) {}
+      if (isTunnelHost(host) && isTunnelHost(curHost)) {
         return true;
       }
       if (loc && typeof loc.pathname === 'string' && loc.pathname.startsWith('/lab')) {
