@@ -5,6 +5,7 @@ import gc
 import glob
 import importlib.util
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -199,6 +200,7 @@ def main() -> None:
                 sex=args.sex,
                 steps=50,
                 prefer_pytorch3d=True,
+                overlay_dir=Path(args.output_dir) if args.save_debug_plots else None,
             )
             fit_debug = fit_debug if isinstance(fit_debug, dict) else {}
 

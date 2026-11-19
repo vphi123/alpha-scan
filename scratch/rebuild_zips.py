@@ -34,6 +34,7 @@ def rebuild():
         "README.md",
         "requirements.txt",
         "AlphaScan_Plan2A_Colab.ipynb",
+        "scratch/compare_glb_silhouettes.py",
     ]
     for folder in ["bodyscan_pipeline", "frontend_lab", "tests", "sample_ai_images"]:
         for p in sorted((ROOT / folder).rglob("*")):

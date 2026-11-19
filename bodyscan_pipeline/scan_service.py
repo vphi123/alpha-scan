@@ -8,6 +8,7 @@ import io
 import json
 import math
 import os
+from pathlib import Path
 import re
 import struct
 import threading
@@ -1501,7 +1502,7 @@ def _select_primary_view_pose(
 
     front_idx = 0
     for idx, sv in enumerate(segmented_views or ()):
-        role = str(getattr(sv, "role", "") or "").strip().lower()
+        role = str(getattr(sv, "view_label", "") or getattr(sv, "role", "") or "").strip().lower()
         az = float(getattr(sv, "azimuth_deg", 999.0))
         if role == "front" or abs(az) < 15.0:
             front_idx = idx
@@ -2120,17 +2121,6 @@ class GpuScanEngine(BaseScanEngine):
 
                 _emit_progress(progress_cb, 25, "segmentation")
                 segmented_views = process_views_semantics(raw_results, estimator=self.estimator)
-                cardinal_az = {"front": 0.0, "right": 90.0, "back": 180.0, "left": 270.0}
-                for sv in segmented_views:
-                    sv_idx = int(getattr(sv, "view_index", -1))
-                    if 0 <= sv_idx < len(raw_results):
-                        rec_src = raw_results[sv_idx]
-                        rec_role = rec_src.get("slot_role")
-                        has_k3 = isinstance(rec_src.get("output"), dict) and rec_src["output"].get("pred_keypoints_3d") is not None
-                        if rec_role in cardinal_az and (not has_k3 or sv.view_label not in cardinal_az):
-                            sv.view_label = rec_role
-                            if not has_k3:
-                                sv.azimuth_deg = cardinal_az[rec_role]
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 gc.collect()
@@ -2161,6 +2151,7 @@ class GpuScanEngine(BaseScanEngine):
                     sex=req.sex,
                     steps=50,
                     prefer_pytorch3d=True,
+                    overlay_dir=Path(out_dir) if req.save_debug_plots else None,
                 )
                 fit_debug = fit_debug if isinstance(fit_debug, dict) else {}
                 for w in proportion_audit.warnings:

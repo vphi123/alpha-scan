@@ -186,6 +186,17 @@ Mở tunnel HTTPS (`cloudflared tunnel --url http://127.0.0.1:8000`) rồi sử 
 * `POST /api/v1/bodyscan/{job_id}/delete` *(hoặc `DELETE /api/v1/bodyscan/{job_id}`)*: Theo **Quyết định 3a**, xoá toàn bộ tệp `.glb` (kể cả **`scan_core.glb`**) và texture `.jpg` trên server khiến mọi yêu cầu tải tài sản 3D sau đó trả **`410 Gone`**, đồng thời giữ nguyên số đo `body_scan` (thêm `?purge_all=true` để xoá toàn bộ hồ sơ job).
 
 ## Kiểm thử tự động & Nghiệm thu QA
+
+Để chấm hình thể của GLB cuối, chuẩn bị bốn mặt nạ PNG nhị phân từ ảnh gốc (người trắng, nền đen). Kiểm tra thủ công viền tay, chân và quần áo rồi giữ nguyên bộ mặt nạ cho các lần so sánh.
+
+```bash
+python scratch/compare_glb_silhouettes.py scan.glb --front front.png --right right.png --back back.png --left left.png --output-dir qa
+```
+
+Công cụ chiếu trực giao mô hình ở bốn góc, căn theo tâm khung bao và cùng chiều cao. Trong ảnh nghiêng phải, người nhìn sang phải khung hình. Mỗi PNG cho thấy phần trùng màu trắng, phần chỉ có trong ảnh thật màu cam và phần chỉ có ở mô hình màu xanh. Tệp `qa/scores.json` ghi IoU từng góc, trung bình, điểm thấp nhất và kết quả ngưỡng 90% cho cả bốn.
+
+Khi chẩn đoán phép chiếu theo camera đã khớp, đọc `proportion_audit.silhouette_views` trong JSON của lần quét. Chạy pipeline local với `--save_debug_plots` để xuất thêm `silhouette_*.png` theo tư thế từng ảnh. Hai phép đo dùng camera và tư thế khác nhau.
+
 ```bash
 python -m pytest -v
 node --test tests/test_frontend_plus_pro.mjs

@@ -3,6 +3,7 @@
 from collections import OrderedDict
 import inspect
 import os
+import shutil
 import sys
 import warnings
 import weakref
@@ -131,24 +132,26 @@ class _SAM2SegmentorAdapter:
         """Delegate `predict` to the underlying SAM2 predictor."""
         return self.predictor.predict(*args, **kwargs)
 
-    def run_sam(self, img: np.ndarray, boxes: Any = None, **kwargs: Any) -> np.ndarray:
-        """Predict `(N, H, W)` uint8 binary masks for `img` and `boxes`."""
+    def run_sam(self, img: np.ndarray, boxes: Any = None, **kwargs: Any) -> Tuple[np.ndarray, np.ndarray]:
+        """Return binary masks and confidence scores in SAM 3D Body's format."""
         h, w = img.shape[:2]
         if boxes is None:
             box_list: List[Optional[np.ndarray]] = [None]
         else:
             box_arr = np.asarray(boxes, dtype=np.float32)
             if box_arr.size == 0:
-                return np.zeros((0, h, w), dtype=np.uint8)
+                return np.zeros((0, h, w), dtype=np.uint8), np.zeros(0, dtype=np.float32)
             box_arr = box_arr.reshape(-1, 4)
             box_list = [b for b in box_arr]
 
         masks_out: List[np.ndarray] = []
+        scores_out: List[float] = []
         with torch.no_grad():
             self.predictor.set_image(img)
             for single_box in box_list:
                 pred = self.predictor.predict(box=single_box, multimask_output=False)
-                raw = pred[0] if isinstance(pred, tuple) and len(pred) > 0 else pred
+                raw = pred[0] if isinstance(pred, tuple) else pred
+                score = float(np.asarray(pred[1]).reshape(-1)[0]) if isinstance(pred, tuple) else 1.0
                 if hasattr(raw, "detach"):
                     raw = raw.detach().cpu().numpy()
                 mask = np.asarray(raw)
@@ -159,6 +162,7 @@ class _SAM2SegmentorAdapter:
                         mask = mask[0]
                 if mask.size == 0 or mask.ndim != 2:
                     masks_out.append(np.zeros((h, w), dtype=np.uint8))
+                    scores_out.append(0.0)
                     continue
                 if mask.shape != (h, w):
                     mask = cv2.resize(
@@ -167,7 +171,8 @@ class _SAM2SegmentorAdapter:
                         interpolation=cv2.INTER_NEAREST,
                     )
                 masks_out.append((mask.astype(np.float32) > 0.5).astype(np.uint8))
-        return np.stack(masks_out, axis=0).astype(np.uint8)
+                scores_out.append(score)
+        return np.stack(masks_out, axis=0), np.asarray(scores_out, dtype=np.float32)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.predictor, name)
@@ -427,6 +432,8 @@ def load_sam3d_estimator(
         human_segmentor=human_segmentor,
         fov_estimator=fov_est,
     )
+    # Meta stores this constructor argument as estimator.sam.
+    estimator.human_segmentor = human_segmentor
     return model, estimator
 
 
@@ -879,6 +886,7 @@ def _call_process_one_image(estimator: Any, rgb: np.ndarray, bbox_thr: float) ->
     want_mask = bool(getattr(estimator, "human_segmentor", None) is not None)
     accepts_use_mask = True
     accepts_bbox_thr = True
+    person_box = None
     try:
         sig = inspect.signature(fn)
         params = sig.parameters
@@ -886,10 +894,23 @@ def _call_process_one_image(estimator: Any, rgb: np.ndarray, bbox_thr: float) ->
         accepts_use_mask = has_varkw or ("use_mask" in params)
         accepts_bbox_thr = has_varkw or ("bbox_thr" in params)
     except (ValueError, TypeError):
-        pass
+        params = {}
+
+    # Without ViTDet the upstream estimator prompts SAM with the entire frame.
+    if want_mask and "bboxes" in params and getattr(estimator, "detector", False) is None:
+        from .segmentation import _segment_with_mediapipe
+
+        foreground = _segment_with_mediapipe(rgb)
+        if foreground is not None and np.any(foreground):
+            _, _, stats, _ = cv2.connectedComponentsWithStats(foreground.astype(np.uint8))
+            x, y, w, h, area = stats[1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])]
+            if area >= 0.01 * foreground.size and h >= 0.25 * rgb.shape[0]:
+                person_box = np.array([[x, y, x + w, y + h]], dtype=np.float32)
 
     def _invoke(use_mask_flag: Optional[bool]) -> Any:
         kwargs: Dict[str, Any] = {}
+        if person_box is not None:
+            kwargs["bboxes"] = person_box
         if accepts_bbox_thr:
             kwargs["bbox_thr"] = bbox_thr
         if use_mask_flag is not None and accepts_use_mask:

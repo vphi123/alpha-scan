@@ -860,7 +860,7 @@ def _segment_person_mask_with_source(
         mask = _segment_with_mediapipe(rgb_arr, task_model_path=mediapipe_task_path)
         if mask is not None and np.any(mask):
             mask_source = "mediapipe"
-    if mask is None:
+    if mask is None or not np.any(mask):
         mask = _segment_with_grabcut(rgb_arr, bbox, prior_core=prior_core)
         mask_source = "grabcut"
 
@@ -1704,6 +1704,11 @@ def process_views_semantics(
             total_views=total_views,
         )
         view_label = classify_view_azimuth(azimuth_deg)
+        slot_role = rec.get("slot_role")
+        cardinal_angles = dict(CARDINAL_CENTERS)
+        if slot_role in cardinal_angles and slot_role != view_label:
+            view_label = slot_role
+            azimuth_deg = cardinal_angles[slot_role]
 
         head_crop_bbox = rec.get("head_crop_bbox")
         neck_y_px = _estimate_neck_y_from_output(out, person_mask, head_crop_bbox)

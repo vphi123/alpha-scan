@@ -148,6 +148,28 @@ class TestSegmentation(unittest.TestCase):
         self.assertEqual(len(views), 4)
         self.assertEqual([v.view_index for v in views], [0, 1, 2, 3])
         self.assertEqual([v.view_label for v in views], expected_labels)
+        raw_results[0]["slot_role"] = "right"
+        declared = process_views_semantics(raw_results[:1])[0]
+        self.assertEqual((declared.view_label, declared.azimuth_deg), ("right", 90.0))
+
+    def test_mask_prompt_uses_foreground_box_when_detector_is_missing(self):
+        from unittest.mock import patch
+        from bodyscan_pipeline.inference import _call_process_one_image
+
+        class Estimator:
+            detector = None
+            human_segmentor = object()
+
+            def process_one_image(self, rgb, bboxes=None, use_mask=False):
+                return bboxes, use_mask
+
+        rgb = np.zeros((100, 80, 3), dtype=np.uint8)
+        mask = np.zeros((100, 80), dtype=bool)
+        mask[10:90, 20:50] = True
+        with patch("bodyscan_pipeline.segmentation._segment_with_mediapipe", return_value=mask):
+            box, enabled = _call_process_one_image(Estimator(), rgb, 0.5)
+        np.testing.assert_array_equal(box, [[20, 10, 50, 90]])
+        self.assertTrue(enabled)
 
     def test_extract_head_semantics_hair_exclusion_and_nose_profile(self) -> None:
         from bodyscan_pipeline.segmentation import extract_head_semantics
@@ -353,7 +375,7 @@ class TestSegmentation(unittest.TestCase):
         class _FakeEstimatorObj:
             def __init__(self, **kwargs) -> None:
                 self.kwargs = kwargs
-                self.human_segmentor = kwargs.get("human_segmentor")
+                self.sam = kwargs.get("human_segmentor")
                 self.fov_estimator = kwargs.get("fov_estimator")
 
         fake_sam_mod = types.ModuleType("sam_3d_body")
@@ -455,14 +477,14 @@ class TestSegmentation(unittest.TestCase):
             self.assertIsInstance(est_sam2.human_segmentor.predictor, _FakeSAM2Predictor)
             self.assertEqual(captured_sam2_calls["ckpt"], str(sam2_ckpt))
             self.assertIn("b+", captured_sam2_calls["cfg"])
-            sam2_run_masks = est_sam2.human_segmentor.run_sam(rgb, bbox[None, :])
+            sam2_run_masks, sam2_scores = est_sam2.sam.run_sam(rgb, bbox[None, :])
             self.assertEqual(sam2_run_masks.shape, (1, rgb.shape[0], rgb.shape[1]))
             self.assertEqual(sam2_run_masks.dtype, np.uint8)
+            np.testing.assert_allclose(sam2_scores, [0.99])
             self.assertTrue(np.array_equal(sam2_run_masks[0] > 0, gt_mask))
-            self.assertEqual(
-                est_sam2.human_segmentor.run_sam(rgb, np.zeros((0, 4), dtype=np.float32)).shape,
-                (0, rgb.shape[0], rgb.shape[1]),
-            )
+            empty_masks, empty_scores = est_sam2.sam.run_sam(rgb, np.zeros((0, 4), dtype=np.float32))
+            self.assertEqual(empty_masks.shape, (0, rgb.shape[0], rgb.shape[1]))
+            self.assertEqual(empty_scores.shape, (0,))
             sam2_mask = segment_person_mask(rgb, bbox=bbox, human_segmentor=est_sam2.human_segmentor)
             self.assertTrue(np.array_equal(sam2_mask, gt_mask))
 

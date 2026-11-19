@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -24,7 +25,7 @@ from .fusion import (
     solve_straight_apose,
 )
 from .inference import verify_license_compliance
-from .segmentation import SegmentedView
+from .segmentation import SegmentedView, classify_view_azimuth
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ProportionAudit:
     outer_silhouette_iou: Optional[float]
     status: str  # Strictly one of: "estimated_only", "matched", "mismatch_warning"
     warnings: List[str] = field(default_factory=list)
+    silhouette_views: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize audit metrics into a JSON-compatible dictionary."""
@@ -46,6 +48,7 @@ class ProportionAudit:
             "estimated_weight_kg": float(self.estimated_weight_kg),
             "weight_diff_pct": None if self.weight_diff_pct is None else float(self.weight_diff_pct),
             "mhr_silhouette_iou": float(self.mhr_silhouette_iou),
+            "silhouette_views": list(self.silhouette_views),
             "outer_silhouette_iou": (
                 None if self.outer_silhouette_iou is None else float(self.outer_silhouette_iou)
             ),
@@ -587,7 +590,8 @@ def _solve_initial_view_camera(
 
                     if best_cam is not None:
                         cam_iou = _quick_vertex_mask_iou(verts_a, best_cam[0], best_cam[1], focal, target_mask)
-                        if bbox_cam is None or not np.any(target_mask) or cam_iou >= 0.15 or bbox_iou <= 0.35:
+                        # Allow a small margin for the subsampled silhouette estimate.
+                        if bbox_cam is None or cam_iou + 0.05 >= bbox_iou:
                             return best_cam
 
     if bbox_cam is not None:
@@ -650,6 +654,7 @@ def _evaluate_multiview_silhouette_iou(
     cameras: List[Tuple[np.ndarray, np.ndarray, float]],
     segmented_views: List[SegmentedView],
     view_verts_list: Optional[Sequence[Optional[np.ndarray]]] = None,
+    overlay_dir: Optional[Path] = None,
 ) -> Tuple[float, List[float]]:
     """Compute mean and per-view silhouette IoU against hair-excluded body_mask."""
     per_view: List[float] = []
@@ -666,6 +671,15 @@ def _evaluate_multiview_silhouette_iou(
         verts_cam = (verts_src @ r_v.T) + t_v.reshape(1, 3)
         pred_mask = _rasterize_binary_silhouette_cpu(verts_cam, faces_np, focal, img_h, img_w)
         per_view.append(_compute_mask_iou(pred_mask, target_mask))
+        if overlay_dir is not None:
+            # Store only silhouettes. White = overlap, orange = target, blue = mesh.
+            overlay = np.full((img_h, img_w, 3), 30, dtype=np.uint8)
+            overlay[target_mask] = (30, 150, 245)
+            overlay[pred_mask] = (245, 155, 40)
+            overlay[target_mask & pred_mask] = 240
+            overlay_dir.mkdir(parents=True, exist_ok=True)
+            path = overlay_dir / f"silhouette_{idx:02d}_{classify_view_azimuth(view.azimuth_deg)}.png"
+            path.write_bytes(cv2.imencode(".png", overlay)[1].tobytes())
     mean_iou = float(np.mean(per_view)) if per_view else 0.0
     return mean_iou, per_view
 
@@ -1427,6 +1441,13 @@ def _run_contour_fallback_optimization(
         loss_c = _contour_projection_loss_for_views(base_v_list_t, view_targets, r_cands, t_cands, v_sub_idx)
         loss_reg = 0.08 * (drot_vars ** 2).mean() + 0.02 * (dt_vars ** 2).mean()
         total_c = loss_c + loss_reg
+        # Save the camera that produced this loss before Adam updates it.
+        l_val = float(total_c.detach().item())
+        loss_history.append(l_val)
+        if l_val < best_cam_loss:
+            best_cam_loss = l_val
+            best_dt_snap = dt_vars.detach().clone()
+            best_drot_snap = drot_vars.detach().clone()
         total_c.backward()
         _adam_step_tensors([dt_vars, drot_vars], m_cam, v_cam, s_idx, lr=0.025)
         with torch.no_grad():
@@ -1434,12 +1455,6 @@ def _run_contour_fallback_optimization(
             max_rad = math.radians(12.0)
             scale_clamp = torch.clamp(max_rad / rot_norms, max=1.0)
             drot_vars.mul_(scale_clamp)
-        l_val = float(total_c.detach().item())
-        loss_history.append(l_val)
-        if l_val < best_cam_loss:
-            best_cam_loss = l_val
-            best_dt_snap = dt_vars.detach().clone()
-            best_drot_snap = drot_vars.detach().clone()
 
     cand_cameras = [
         (np.asarray(r, dtype=np.float32).copy(), np.asarray(t, dtype=np.float32).copy(), float(f))
@@ -1596,6 +1611,7 @@ def fit_mhr_multiview(
     sex: str,
     steps: int = 50,
     prefer_pytorch3d: bool = True,
+    overlay_dir: Optional[Path] = None,
 ) -> Tuple[FusedSubjectParams, ProportionAudit, Dict[str, Any]]:
     """Optimize MHR parameters against hair-excluded silhouettes and audit weight consistency."""
     verify_license_compliance()
@@ -1750,6 +1766,7 @@ def fit_mhr_multiview(
         cameras=final_cameras,
         segmented_views=segmented_views,
         view_verts_list=view_posed_verts,
+        overlay_dir=overlay_dir,
     )
     audit = evaluate_proportion_audit(
         verts_a=verts_final,
@@ -1759,6 +1776,12 @@ def fit_mhr_multiview(
         mhr_silhouette_iou=mhr_iou,
     )
     volume_liters = float(compute_closed_mesh_volume_liters(verts_final, faces_np))
+    scores = iter(per_view_ious)
+    audit.silhouette_views = [
+        {"view_index": int(view.view_index), "view": view.view_label,
+         "mask_source": view.mask_source, "iou": next(scores) if np.any(view.body_mask) else None}
+        for view in segmented_views
+    ]
     debug_info: Dict[str, Any] = {
         "used_pytorch3d": used_pytorch3d,
         "used_contour_fallback": used_contour_fallback,
