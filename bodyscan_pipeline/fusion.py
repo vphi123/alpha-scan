@@ -303,3 +303,54 @@ def build_scaled_apose_mesh(
 
     keep_torso_verts = build_arm_vertex_mask(mhr_model, len(verts))
     return verts, joints, keep_torso_verts, raw_height_m * 100.0
+
+
+def build_scaled_posed_mesh(
+    mhr_model: Any,
+    head_assets: Dict[str, torch.Tensor],
+    fused: FusedSubjectParams,
+    body_pose_params: torch.Tensor,
+    height_cm: float,
+    raw_apose_height_cm: Optional[float] = None,
+    apose_params: Optional[torch.Tensor] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Reconstruct MHR mesh in a target photographed pose (e.g. arms raised),
+    scaled using the canonical standing A-pose height so raised arms never shrink the body,
+    and grounded so feet rest at y=0 facing +Z."""
+    if height_cm <= 0:
+        raise ValueError(f"height_cm must be positive, got {height_cm}")
+
+    if raw_apose_height_cm is not None and float(raw_apose_height_cm) > 0:
+        raw_height_m = float(raw_apose_height_cm) / 100.0
+    else:
+        if apose_params is None:
+            apose_params = solve_straight_apose(
+                mhr_model, head_assets, fused.shape_params, fused.scale_params, expr_t=fused.expr_params
+            )
+        canon_verts, _ = evaluate_mhr_pose(
+            mhr_model,
+            head_assets,
+            fused.shape_params,
+            fused.scale_params,
+            apose_params,
+            expr_t=fused.expr_params,
+        )
+        raw_height_m = float(canon_verts[:, 1].max()) - float(canon_verts[:, 1].min())
+        if raw_height_m <= 0:
+            raise RuntimeError("Degenerate canonical A-pose mesh height encountered.")
+
+    scale_factor = (float(height_cm) / 100.0) / raw_height_m
+    verts, joints = evaluate_mhr_pose(
+        mhr_model,
+        head_assets,
+        fused.shape_params,
+        fused.scale_params,
+        body_pose_params,
+        expr_t=fused.expr_params,
+    )
+    min_y = float(verts[:, 1].min())
+    verts[:, 1] -= min_y
+    verts *= scale_factor
+    joints[:, 1] -= min_y
+    joints *= scale_factor
+    return verts, joints

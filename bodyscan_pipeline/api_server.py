@@ -524,6 +524,7 @@ class ScanJobManager:
         reconstruction_mode: str = DEFAULT_RECONSTRUCTION_MODE,
         source_filenames: Optional[List[str]] = None,
         slot_roles: Optional[List[str]] = None,
+        preserve_pose: bool = True,
     ) -> JobRecord:
         self._ensure_secret_persisted()
         now = _utc_now()
@@ -566,6 +567,7 @@ class ScanJobManager:
             save_debug_plots=False,
             source_filenames=source_filenames,
             slot_roles=slot_roles,
+            preserve_pose=bool(preserve_pose),
         )
         self._executor.submit(self._run_job, job_id, req)
         return rec
@@ -1082,6 +1084,7 @@ def create_app(
         reconstruction_mode: str = Form(DEFAULT_RECONSTRUCTION_MODE),
         consent_granted: str = Form("false"),
         slot_roles: Optional[List[str]] = Form(default=None),
+        preserve_pose: str = Form("true"),
     ) -> Dict[str, Any]:
         if not _parse_bool_form(consent_granted):
             raise HTTPException(
@@ -1159,6 +1162,7 @@ def create_app(
             reconstruction_mode=mode_clean,
             source_filenames=source_filenames,
             slot_roles=parsed_slot_roles,
+            preserve_pose=_parse_bool_form(preserve_pose),
         )
         return {
             "job_id": rec.job_id,

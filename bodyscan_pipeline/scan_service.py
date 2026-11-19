@@ -125,6 +125,7 @@ class ScanRequest:
     reconstruction_mode: str = DEFAULT_RECONSTRUCTION_MODE
     source_filenames: Optional[List[str]] = None
     slot_roles: Optional[List[str]] = None
+    preserve_pose: bool = True
 
 
 @dataclass
@@ -1488,6 +1489,61 @@ def _measure_circumferences_and_loft_numpy(
     return circs, debug_slices, loft
 
 
+def _select_primary_view_pose(
+    segmented_views: Sequence[Any],
+    fit_debug: Dict[str, Any],
+    raw_results: Sequence[Dict[str, Any]],
+    apose_params: Optional[Any] = None,
+) -> Optional[Any]:
+    """Select the refined (1, 130) body_pose_params of the primary front view so the exported
+    3D model mirrors the subject's photographed pose (e.g., arms raised, hands on hips)."""
+    import torch
+
+    front_idx = 0
+    for idx, sv in enumerate(segmented_views or ()):
+        role = str(getattr(sv, "role", "") or "").strip().lower()
+        az = float(getattr(sv, "azimuth_deg", 999.0))
+        if role == "front" or abs(az) < 15.0:
+            front_idx = idx
+            break
+
+    apose_cpu: Optional[torch.Tensor] = None
+    if apose_params is not None and hasattr(apose_params, "detach"):
+        apose_cpu = apose_params.detach().cpu().float().reshape(1, -1)[:, :130]
+
+    def _is_meaningful_pose(cand: torch.Tensor) -> bool:
+        c = cand.detach().cpu().float().reshape(1, -1)
+        if c.shape[1] < 130:
+            return False
+        c = c[:, :130]
+        if not bool(torch.isfinite(c).all()):
+            return False
+        if apose_cpu is not None and apose_cpu.shape == c.shape:
+            if torch.allclose(c, apose_cpu, atol=1e-4):
+                return False
+        elif float(c.abs().max()) < 1e-4:
+            return False
+        return True
+
+    view_poses = fit_debug.get("view_poses") if isinstance(fit_debug, dict) else None
+    if isinstance(view_poses, (list, tuple)) and front_idx < len(view_poses):
+        vp = view_poses[front_idx]
+        if vp is not None and hasattr(vp, "detach") and _is_meaningful_pose(vp):
+            return vp.detach().cpu().float().reshape(1, -1)[:, :130].clone()
+
+    if raw_results and front_idx < len(raw_results):
+        rec = raw_results[front_idx]
+        out_dict = rec.get("output") if isinstance(rec, dict) and isinstance(rec.get("output"), dict) else rec
+        raw_pose = out_dict.get("body_pose_params") if isinstance(out_dict, dict) else None
+        if raw_pose is not None:
+            arr = np.asarray(raw_pose, dtype=np.float32).reshape(-1)
+            if arr.size >= 130 and np.all(np.isfinite(arr[:130])):
+                cand_t = torch.from_numpy(arr[:130].copy()).reshape(1, 130)
+                if _is_meaningful_pose(cand_t):
+                    return cand_t
+    return None
+
+
 def _export_geometry_only_scan_artifacts(
     verts_a: np.ndarray,
     faces: np.ndarray,
@@ -1500,6 +1556,8 @@ def _export_geometry_only_scan_artifacts(
     core_faces: Optional[np.ndarray] = None,
     core_mesh_filename: Optional[str] = None,
     joints_a: Optional[np.ndarray] = None,
+    shorts_ref_verts: Optional[np.ndarray] = None,
+    shorts_ref_joints: Optional[np.ndarray] = None,
 ) -> Dict[str, str]:
     """Write Level 1 geometry-only scan.glb, optional scan_core.glb, and body_scan.json without trimesh."""
     os.makedirs(output_dir, exist_ok=True)
@@ -1536,20 +1594,26 @@ def _export_geometry_only_scan_artifacts(
                 )
     else:
         # Minimal athletic compression shorts + sculpted studio clay body
+        ref_v = (
+            np.asarray(shorts_ref_verts, dtype=np.float32)
+            if (shorts_ref_verts is not None and len(shorts_ref_verts) == len(verts_f))
+            else verts_f
+        )
+        ref_j = shorts_ref_joints if shorts_ref_joints is not None else joints_a
         y_hip: Optional[float] = None
-        if joints_a is not None and len(joints_a) > 18:
-            j_hip_l, j_hip_r = joints_a[2, 1], joints_a[18, 1]
+        if ref_j is not None and len(ref_j) > 18:
+            j_hip_l, j_hip_r = ref_j[2, 1], ref_j[18, 1]
             if float(j_hip_l) != 0.0 or float(j_hip_r) != 0.0:
                 y_hip = float(j_hip_l + j_hip_r) * 0.5
         if y_hip is None:
-            y_min = float(np.min(verts_f[:, 1]))
-            y_max = float(np.max(verts_f[:, 1]))
+            y_min = float(np.min(ref_v[:, 1]))
+            y_max = float(np.max(ref_v[:, 1]))
             y_hip = y_min + 0.52 * max(0.2, y_max - y_min)
         shorts_v = (
-            (verts_f[:, 1] >= (y_hip - 0.16))
-            & (verts_f[:, 1] <= (y_hip + 0.08))
-            & (np.abs(verts_f[:, 0]) < 0.22)
-            & (np.abs(verts_f[:, 2]) < 0.16)
+            (ref_v[:, 1] >= (y_hip - 0.16))
+            & (ref_v[:, 1] <= (y_hip + 0.08))
+            & (np.abs(ref_v[:, 0]) < 0.22)
+            & (np.abs(ref_v[:, 2]) < 0.16)
         )
         shorts_tri = shorts_v[faces_i].all(axis=1) if np.any(shorts_v) else np.zeros(len(faces_i), dtype=bool)
         if np.any(shorts_tri) and not np.all(shorts_tri):
@@ -1988,7 +2052,7 @@ class GpuScanEngine(BaseScanEngine):
             save_debug_plots,
         )
         from .fitting import fit_mhr_multiview
-        from .fusion import build_scaled_apose_mesh, fuse_multiview_params
+        from .fusion import build_scaled_apose_mesh, build_scaled_posed_mesh, fuse_multiview_params
         from .head_hair import reconstruct_highres_head_and_hair
         from .inference import run_inference_on_face_image, run_inference_on_images
         from .measurements import (
@@ -2148,7 +2212,33 @@ class GpuScanEngine(BaseScanEngine):
                         warnings.append(w)
 
                 export_verts = verts_a
+                export_joints = joints_a
                 export_faces = faces
+                pose_preserved = False
+                if bool(getattr(req, "preserve_pose", True)) and effective_mode == "calibrated_mhr":
+                    primary_pose = _select_primary_view_pose(
+                        segmented_views=segmented_views,
+                        fit_debug=fit_debug,
+                        raw_results=raw_results,
+                        apose_params=cached_apose_params,
+                    )
+                    if primary_pose is not None:
+                        try:
+                            export_verts, export_joints = build_scaled_posed_mesh(
+                                self.mhr_model,
+                                self.head_assets,
+                                fused,
+                                primary_pose,
+                                float(req.height_cm),
+                                raw_apose_height_cm=raw_height_cm,
+                                apose_params=cached_apose_params,
+                            )
+                            pose_preserved = True
+                        except Exception as exc:
+                            warnings.append(f"Pose preservation fallback to canonical A-pose: {exc}")
+                            export_verts = verts_a
+                            export_joints = joints_a
+                            pose_preserved = False
                 export_undisplaced_verts: Optional[np.ndarray] = None
                 head_vert_mask: Optional[np.ndarray] = None
                 hair_vert_mask: Optional[np.ndarray] = None
@@ -2394,6 +2484,7 @@ class GpuScanEngine(BaseScanEngine):
                     "moge2_depth_used": bool(moge2_depth_used),
                     "facial_landmarks_used": bool(facial_landmarks_used),
                 }
+                body_json["pose_preserved"] = bool(pose_preserved)
                 if tex_outputs is not None:
                     artifacts = export_textured_scan_artifacts(
                         verts_a=export_verts,
@@ -2418,7 +2509,9 @@ class GpuScanEngine(BaseScanEngine):
                         core_verts=core_verts,
                         core_faces=core_faces,
                         core_mesh_filename=core_mesh_filename,
-                        joints_a=joints_a,
+                        joints_a=export_joints,
+                        shorts_ref_verts=verts_a,
+                        shorts_ref_joints=joints_a,
                     )
 
                 if req.save_debug_plots:

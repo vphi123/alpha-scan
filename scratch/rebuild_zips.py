@@ -18,8 +18,9 @@ def rebuild():
         "README.md",
         "requirements.txt",
     ]
-    for p in sorted((ROOT / "bodyscan_pipeline").rglob("*.py")):
-        backend_files.append(p.relative_to(ROOT).as_posix())
+    for p in sorted((ROOT / "bodyscan_pipeline").rglob("*")):
+        if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith(".pyc"):
+            backend_files.append(p.relative_to(ROOT).as_posix())
 
     with zipfile.ZipFile(backend_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for rel in sorted(backend_files):

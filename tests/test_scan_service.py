@@ -1585,6 +1585,99 @@ class TestScanService(unittest.TestCase):
             finally:
                 shutil.rmtree(old_dir, ignore_errors=True)
 
+    def test_preserve_raised_arm_pose_and_height_scaling(self) -> None:
+        from types import SimpleNamespace
+        import torch
+        from bodyscan_pipeline.fusion import FusedSubjectParams, build_scaled_apose_mesh, build_scaled_posed_mesh
+        from bodyscan_pipeline.scan_service import _select_primary_view_pose
+
+        # Build a minimal humanoid vertex set (feet=0.0m, hips=0.90m, head=1.70m, right wrist=0.85m in A-pose)
+        base_verts_cm = torch.tensor(
+            [
+                [0.0, 0.0, 0.0],       # 0: feet
+                [-10.0, 90.0, 0.0],    # 1: hip L
+                [10.0, 90.0, 0.0],     # 2: hip R
+                [0.0, 170.0, 0.0],     # 3: crown of head
+                [35.0, 85.0, 0.0],     # 4: right wrist (moves up when pose[0, 10] > 0)
+            ],
+            dtype=torch.float32,
+        )
+        base_joints_cm = torch.zeros(128, 3, dtype=torch.float32)
+        base_joints_cm[2] = torch.tensor([-10.0, 90.0, 0.0])
+        base_joints_cm[18] = torch.tensor([10.0, 90.0, 0.0])
+        base_joints_cm[42] = torch.tensor([35.0, 85.0, 0.0])  # right wrist
+
+        class _FakeLBS:
+            vert_indices_flattened = torch.arange(5, dtype=torch.long)
+            skin_indices_flattened = torch.tensor([2, 2, 18, 2, 42], dtype=torch.long)
+            skin_weights_flattened = torch.ones(5, dtype=torch.float32)
+
+        class _PoseMHR:
+            character_torch = SimpleNamespace(linear_blend_skinning=_FakeLBS())
+
+            def __call__(self, shape_t, model_params, expr_vec):
+                # body_pose_params start at index 6 in model_params
+                arm_raise = float(model_params[0, 6 + 10].item())
+                v = base_verts_cm.clone()
+                j = base_joints_cm.clone()
+                # Raising arm lifts right wrist by +115 cm (above 170 cm head -> 200 cm!)
+                v[4, 1] += 115.0 * arm_raise
+                j[42, 1] += 115.0 * arm_raise
+                return v.unsqueeze(0), j.unsqueeze(0)
+
+        mhr = _PoseMHR()
+        head_assets = {
+            "scale_mean": torch.zeros(68, dtype=torch.float32),
+            "scale_comps": torch.zeros(28, 68, dtype=torch.float32),
+        }
+        fused = FusedSubjectParams(
+            shape_params=torch.zeros(1, 45, dtype=torch.float32),
+            scale_params=torch.zeros(1, 28, dtype=torch.float32),
+            expr_params=torch.zeros(1, 72, dtype=torch.float32),
+            weights=[1.0],
+            distances=[0.0],
+            images_used=1,
+            images_total=1,
+            mean_confidence=0.95,
+        )
+        apose = torch.zeros(1, 130, dtype=torch.float32)
+        raised_pose = torch.zeros(1, 130, dtype=torch.float32)
+        raised_pose[0, 10] = 1.0  # arm raised high
+
+        verts_a, joints_a, _, raw_h_cm = build_scaled_apose_mesh(mhr, head_assets, fused, 170.0, apose_params=apose)
+        self.assertAlmostEqual(raw_h_cm, 170.0, places=2)
+        self.assertAlmostEqual(float(verts_a[3, 1]), 1.70, places=3)
+        self.assertAlmostEqual(float(verts_a[4, 1]), 0.85, places=3)
+
+        # Select primary view pose (must choose front view over side view)
+        views = [
+            SimpleNamespace(role="right", azimuth_deg=90.0),
+            SimpleNamespace(role="front", azimuth_deg=0.0),
+        ]
+        chosen = _select_primary_view_pose(
+            segmented_views=views,
+            fit_debug={"view_poses": [apose, raised_pose]},
+            raw_results=[],
+            apose_params=apose,
+        )
+        self.assertIsNotNone(chosen)
+        self.assertAlmostEqual(float(chosen[0, 10].item()), 1.0, places=4)
+
+        # Build posed mesh: feet stay at y=0, head stays at 1.70m (NO shrinking!), wrist rises to 2.00m
+        verts_p, joints_p = build_scaled_posed_mesh(
+            mhr,
+            head_assets,
+            fused,
+            chosen,
+            height_cm=170.0,
+            raw_apose_height_cm=raw_h_cm,
+            apose_params=apose,
+        )
+        self.assertAlmostEqual(float(verts_p[:, 1].min()), 0.0, places=4)
+        self.assertAlmostEqual(float(verts_p[3, 1]), 1.70, places=3)  # head height preserved
+        self.assertGreater(float(verts_p[4, 1]), float(verts_p[3, 1]) + 0.20)  # raised wrist above head
+        self.assertAlmostEqual(float(joints_p[42, 1]), 2.00, places=3)
+
 
 if __name__ == "__main__":
     unittest.main()

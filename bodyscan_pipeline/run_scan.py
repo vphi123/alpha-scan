@@ -30,7 +30,7 @@ from .exporter import (
     secure_delete_files,
 )
 from .fitting import evaluate_proportion_audit, fit_mhr_multiview
-from .fusion import build_scaled_apose_mesh, fuse_multiview_params
+from .fusion import build_scaled_apose_mesh, build_scaled_posed_mesh, fuse_multiview_params
 from .head_hair import reconstruct_highres_head_and_hair
 from .inference import (
     load_sam3d_estimator,
@@ -46,6 +46,7 @@ from .scan_service import (
     _export_geometry_only_scan_artifacts,
     _measure_circumferences_and_loft_numpy,
     _resolve_effective_mode,
+    _select_primary_view_pose,
     _transfer_detail_verts_to_view,
 )
 from .segmentation import process_views_semantics, strip_ram_only_semantics
@@ -101,6 +102,11 @@ def parse_args() -> argparse.Namespace:
         help="3D reconstruction mode: calibrated_mhr, hi_res_head, or dual_layer",
     )
     parser.add_argument("--no_preview_glb", action="store_true", help="Skip exporting textured preview GLB files")
+    parser.add_argument(
+        "--no_preserve_pose",
+        action="store_true",
+        help="Export canonical A-pose instead of copying the subject's photographed pose",
+    )
     parser.add_argument(
         "--delete_inputs",
         action="store_true",
@@ -240,7 +246,33 @@ def main() -> None:
                 warnings.append(w)
 
         export_verts = verts_a
+        export_joints = joints_a
         export_faces = faces
+        pose_preserved = False
+        if not args.no_preserve_pose and effective_mode == "calibrated_mhr":
+            primary_pose = _select_primary_view_pose(
+                segmented_views=segmented_views or (),
+                fit_debug=fit_debug,
+                raw_results=raw_results,
+                apose_params=cached_apose_params,
+            )
+            if primary_pose is not None:
+                try:
+                    export_verts, export_joints = build_scaled_posed_mesh(
+                        mhr_model,
+                        head_assets,
+                        fused,
+                        primary_pose,
+                        args.height_cm,
+                        raw_apose_height_cm=raw_height_cm,
+                        apose_params=cached_apose_params,
+                    )
+                    pose_preserved = True
+                except Exception as exc:
+                    warnings.append(f"Pose preservation fallback to canonical A-pose: {exc}")
+                    export_verts = verts_a
+                    export_joints = joints_a
+                    pose_preserved = False
         head_vert_mask: Optional[np.ndarray] = None
         hair_vert_mask: Optional[np.ndarray] = None
         face_skin_vert_mask: Optional[np.ndarray] = None
@@ -401,6 +433,7 @@ def main() -> None:
                 core_mesh_filename=core_mesh_filename,
             )
         else:
+            body_json["pose_preserved"] = bool(pose_preserved)
             outputs = _export_geometry_only_scan_artifacts(
                 verts_a=export_verts,
                 faces=export_faces,
@@ -410,6 +443,9 @@ def main() -> None:
                 core_verts=core_verts,
                 core_faces=core_faces,
                 core_mesh_filename=core_mesh_filename,
+                joints_a=export_joints,
+                shorts_ref_verts=verts_a,
+                shorts_ref_joints=joints_a,
             )
 
         if args.save_debug_plots:
