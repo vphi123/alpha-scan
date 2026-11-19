@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alpha Scan · Đo tư thế</title>
+<style>
+:root{
+  --navy:#071B2E; --navy2:#122B42; --teal:#00C2C8; --teal2:#20D6D5; --gold:#D6A952;
+  --ink:#EAF2F5; --muted:#9FB3BE; --line:rgba(255,255,255,.14);
+  --good:#22C55E; --warn:#F5B042; --bad:#F26D6D; --card:rgba(10,24,38,.72);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#05101C;color:var(--ink);
+  font:15px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+/* ---- Stage ---- */
+#stage{position:relative;flex:1;min-height:0;background:#05101C;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(1);background:#05101C}
+#video.mirror{transform:scaleX(-1)}
+#overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+/* top bar */
+#top{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:10px;
+  padding:14px 16px calc(14px);background:linear-gradient(#05101Ccc,transparent)}
+#top .ttl{font-weight:600;letter-spacing:.2px}
+#top .ttl small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+.spread{flex:1}
+.steps{display:flex;gap:6px}
+.steps i{width:26px;height:4px;border-radius:9px;background:rgba(255,255,255,.22);transition:.25s}
+.steps i.on{background:var(--teal)}
+.steps i.done{background:var(--good)}
+/* guide frame + hint */
+#guide{position:absolute;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(62%,320px);aspect-ratio:9/19;border:2.5px dashed rgba(255,255,255,.5);border-radius:120px/90px;
+  transition:border-color .2s, box-shadow .2s}
+#guide.ok{border-color:var(--good);border-style:solid;box-shadow:0 0 0 2px rgba(34,197,94,.25),0 0 40px rgba(34,197,94,.25)}
+#guide.near{border-color:var(--warn)}
+#guide svg{position:absolute;inset:0;width:100%;height:100%;opacity:.35}
+#hint{position:absolute;z-index:6;left:50%;bottom:150px;transform:translateX(-50%);
+  background:var(--card);border:1px solid var(--line);backdrop-filter:blur(8px);
+  padding:9px 16px;border-radius:999px;font-size:14px;white-space:nowrap;display:flex;align-items:center;gap:8px;
+  box-shadow:0 8px 30px rgba(0,0,0,.4)}
+#hint .dot{width:9px;height:9px;border-radius:50%;background:var(--warn);flex:none}
+#hint.ok .dot{background:var(--good)} #hint.bad .dot{background:var(--bad)}
+.viewtag{position:absolute;z-index:6;top:64px;left:50%;transform:translateX(-50%);
+  background:rgba(0,194,200,.15);border:1px solid rgba(0,194,200,.5);color:var(--teal2);
+  padding:5px 14px;border-radius:999px;font-weight:600;font-size:13px;letter-spacing:.3px}
+/* ---- Controls ---- */
+#controls{position:absolute;left:0;right:0;bottom:0;z-index:6;
+  padding:16px 18px calc(20px + env(safe-area-inset-bottom));
+  background:linear-gradient(transparent,#05101Cdd 32%)}
+.row{display:flex;align-items:center;gap:12px}
+.center{justify-content:center}
+.thumbs{display:flex;gap:7px;justify-content:center;margin-bottom:14px}
+.thumbs .t{width:46px;height:60px;border-radius:9px;border:1.5px solid var(--line);
+  background:#0c2135 center/cover no-repeat;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:11px;position:relative;overflow:hidden}
+.thumbs .t.done{border-color:var(--good)}
+.thumbs .t.cur{border-color:var(--teal);box-shadow:0 0 0 2px rgba(0,194,200,.3)}
+.thumbs .t .ck{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:var(--good);
+  color:#04210f;font-size:11px;display:flex;align-items:center;justify-content:center}
+.shutter{width:78px;height:78px;border-radius:50%;border:4px solid #fff;background:var(--teal);
+  cursor:pointer;flex:none;position:relative;transition:transform .08s, background .2s;
+  box-shadow:0 6px 24px rgba(0,194,200,.45)}
+.shutter:disabled{background:#3a5568;border-color:#6b8296;box-shadow:none;cursor:not-allowed}
+.shutter:active{transform:scale(.93)}
+.shutter .ring{position:absolute;inset:7px;border-radius:50%;border:2px solid rgba(255,255,255,.65)}
+.cnt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#04212a}
+.btn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink);
+  border-radius:12px;padding:11px 16px;font:inherit;font-weight:500;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.btn:hover{background:rgba(255,255,255,.12)}
+.btn.ghost{background:transparent}
+.btn.teal{background:var(--teal);color:#04212a;border-color:var(--teal);font-weight:600}
+.iconbtn{width:46px;height:46px;border-radius:50%;padding:0;justify-content:center;font-size:19px}
+select{appearance:none;background:rgba(255,255,255,.07);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:9px 30px 9px 12px;font:inherit;max-width:60vw;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239FB3BE'><path d='M2 4l4 4 4-4'/></svg>");
+  background-repeat:no-repeat;background-position:right 10px center}
+.side{position:absolute;right:16px;top:50%;transform:translateY(-50%);z-index:6;display:flex;flex-direction:column;gap:12px}
+/* ---- Panels (start / review) ---- */
+.panel{position:absolute;inset:0;z-index:20;background:linear-gradient(160deg,#061626,#0a2238 70%,#07304a);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;gap:16px}
+.panel.hidden{display:none}
+.panel h1{margin:0;font-size:26px;letter-spacing:.3px}
+.panel h1 .k{color:var(--teal2)}
+.panel p{margin:0;color:var(--muted);max-width:460px}
+.card{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:16px;padding:18px 20px;max-width:460px;width:100%}
+.steps-list{text-align:left;display:grid;gap:10px;margin:4px 0 0}
+.steps-list .s{display:flex;gap:12px;align-items:flex-start}
+.steps-list .n{width:26px;height:26px;border-radius:50%;background:rgba(0,194,200,.15);color:var(--teal2);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:460px}
+.grid4 .g{aspect-ratio:9/13;border-radius:12px;border:1.5px solid var(--line);background:#0c2135 center/cover no-repeat;
+  position:relative;overflow:hidden;display:flex;align-items:flex-end}
+.grid4 .g .lb{width:100%;background:#051220aa;padding:5px 7px;font-size:11px;color:var(--muted)}
+.grid4 .g.done{border-color:var(--good)}
+.hide{display:none!important}
+.small{font-size:12.5px;color:var(--muted)}
+.legal{position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:11px;color:#5e7686;z-index:21}
+@media(min-width:760px){
+  #stage{margin:18px auto;max-width:460px;width:100%;border-radius:22px;flex:none;height:min(78vh,820px);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #app{justify-content:center;background:radial-gradient(130% 90% at 50% 20%,#0c2036,#05101C 70%)}
+  #guide{border-radius:120px/90px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- START -->
+  <section class="panel" id="pStart">
+    <h1>Alpha Scan · <span class="k">Đo tư thế</span></h1>
+    <p>Chụp lần lượt <b>4 mặt phẳng</b> của cơ thể. Hệ thống tự nhận khi bạn đã vào trọn khung, rồi bạn bấm <b>nút Đo</b> cho từng mặt.</p>
+    <div class="card">
+      <div class="steps-list">
+        <div class="s"><div class="n">1</div><div>Đặt máy cách <b>2,5–3 m</b>, ngang hông, dựng thẳng. <span class="small">Camera đứng yên — người đo xoay.</span></div></div>
+        <div class="s"><div class="n">2</div><div>Đứng sao cho thấy <b>trọn đầu → bàn chân</b>, tay thả xuôi.</div></div>
+        <div class="s"><div class="n">3</div><div>Khung chuyển <b style="color:var(--good)">xanh</b> = đạt → bấm <b>Đo</b>. Xong mặt này, xoay sang mặt kế.</div></div>
+      </div>
+    </div>
+    <div class="row center" id="startCam"></div>
+    <button class="btn teal" id="btnStart" style="padding:13px 26px;font-size:16px">Bắt đầu đo ▸</button>
+    <p class="small" id="startMsg"></p>
+  </section>
+
+  <!-- CAPTURE STAGE -->
+  <section id="stage" class="hide">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="guide"><svg viewBox="0 0 100 210" preserveAspectRatio="none"><path fill="#fff" d="M50 8a11 11 0 110 22 11 11 0 010-22zM38 34h24c4 0 7 3 7 7l4 44c.4 4-5 5-6 1l-5-34v24l6 96c.5 5-7 6-8 1l-6-74-6 74c-1 5-8.5 4-8-1l6-96V52l-5 34c-1 4-6.4 3-6-1l4-44c0-4 3-7 7-7z"/></svg></div>
+    <div id="top">
+      <div class="ttl">Đo tư thế<small id="topSub">Mặt 1/4</small></div>
+      <div class="spread"></div>
+      <div class="steps" id="steps"></div>
+    </div>
+    <div class="viewtag" id="viewTag">Chính diện</div>
+    <div id="hint"><span class="dot"></span><span id="hintTxt">Đang mở camera…</span></div>
+    <div class="side" id="sideCtl"></div>
+    <div id="controls">
+      <div class="thumbs" id="thumbs"></div>
+      <div class="row center">
+        <button class="btn iconbtn ghost" id="btnFlip" title="Đổi camera">⟲</button>
+        <button class="shutter" id="btnShot" disabled><span class="ring"></span><span class="cnt hide" id="cnt"></span></button>
+        <button class="btn iconbtn ghost" id="btnRetake" title="Chụp lại mặt này">↺</button>
+      </div>
+      <div class="row center" style="margin-top:12px" id="camPick"></div>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section class="panel hidden" id="pReview">
+    <h1>Xem lại <span class="k">4 mặt</span></h1>
+    <p>Kiểm tra đủ sáng, trọn người, đúng hướng. Bấm một ảnh để chụp lại mặt đó.</p>
+    <div class="grid4" id="revGrid"></div>
+    <div class="row center" style="gap:12px;margin-top:6px">
+      <button class="btn ghost" id="btnRedo">Đo lại từ đầu</button>
+      <button class="btn teal" id="btnDone" style="padding:13px 26px">Hoàn tất ✓</button>
+    </div>
+    <p class="small" id="revMsg"></p>
+  </section>
+</div>
+<div class="legal">Ảnh dùng để đo tư thế. Không lưu điểm khuôn mặt (QĐ 20/10). Dữ liệu sức khoẻ — xử lý theo đồng thuận.</div>
+
+<script type="module">
+// ===== Alpha Scan · Guided multi-plane posture capture =====
+const $ = s => document.querySelector(s);
+const VIEWS = [
+  {k:'front', name:'Chính diện', sub:'Mặt hướng camera, tay thả xuôi', orient:'front'},
+  {k:'right', name:'Nghiêng phải', sub:'Xoay 90°, vai phải gần camera', orient:'side'},
+  {k:'back',  name:'Lưng',        sub:'Lưng hướng camera', orient:'front'},
+  {k:'left',  name:'Nghiêng trái', sub:'Xoay tiếp 90°, vai trái gần camera', orient:'side'},
+];
+const state = { idx:0, shots:{}, stream:null, devices:[], devIdx:0, facing:'user', usePose:false, landmarker:null, running:false, ready:false, stableSince:0, mirror:true };
+
+// ---------- camera ----------
+async function listCams(){
+  try{
+    const ds = await navigator.mediaDevices.enumerateDevices();
+    state.devices = ds.filter(d=>d.kind==='videoinput');
+  }catch(e){ state.devices=[]; }
+}
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+async function startStream(){
+  stopStream();
+  let constraints;
+  if(state.devices.length>1 && !isMobile && state.devices[state.devIdx]){
+    constraints = {video:{deviceId:{exact:state.devices[state.devIdx].deviceId}, width:{ideal:1280}, height:{ideal:720}}, audio:false};
+  }else{
+    constraints = {video:{facingMode:state.facing, width:{ideal:1280}, height:{ideal:720}}, audio:false};
+  }
+  try{
+    state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+  }catch(e){
+    setHint('bad','Không mở được camera ('+(e.name||e)+'). Cấp quyền camera rồi tải lại.');
+    return false;
+  }
+  const v = $('#video'); v.srcObject = state.stream;
+  // mirror only for user-facing on mobile; webcams on desktop usually mirrored too for comfort
+  state.mirror = (state.facing==='user' || !isMobile);
+  v.classList.toggle('mirror', state.mirror);
+  await v.play().catch(()=>{});
+  if(!state.devices.length) await listCams(); // labels appear after permission
+  buildCamPick();
+  return true;
+}
+function stopStream(){ if(state.stream){ state.stream.getTracks().forEach(t=>t.stop()); state.stream=null; } }
+
+function buildCamPick(){
+  const wrap = $('#camPick'); wrap.innerHTML='';
+  if(isMobile){ return; } // phone uses flip button
+  if(state.devices.length>1){
+    const sel = document.createElement('select');
+    state.devices.forEach((d,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=d.label||('Webcam '+(i+1)); if(i===state.devIdx)o.selected=true; sel.appendChild(o); });
+    sel.onchange = async e=>{ state.devIdx=+e.target.value; await startStream(); };
+    const lab=document.createElement('span'); lab.className='small'; lab.textContent='Webcam:'; lab.style.marginRight='4px';
+    wrap.appendChild(lab); wrap.appendChild(sel);
+  }
+  $('#btnFlip').style.display = isMobile ? '' : 'none';
+}
+
+// ---------- MediaPipe pose (smart in-frame detection) ----------
+async function initPose(){
+  try{
+    const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const fileset = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    state.landmarker = await vision.PoseLandmarker.createFromOptions(fileset, {
+      baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate:'GPU' },
+      runningMode:'VIDEO', numPoses:1 });
+    state.usePose = true;
+  }catch(e){ state.usePose=false; /* fallback: manual capture always enabled */ }
+}
+
+// Evaluate whether the full body sits well inside the frame
+function evalPose(res){
+  if(!res || !res.landmarks || !res.landmarks.length) return {ok:false, msg:'Chưa thấy người — đứng vào giữa khung', cls:''};
+  const L = res.landmarks[0];
+  const need = {nose:0, ls:11, rs:12, lh:23, rh:24, la:27, ra:28};
+  for(const k in need){ const p=L[need[k]]; if(!p || (p.visibility!==undefined && p.visibility<0.4)) return {ok:false,msg:'Thấy chưa trọn người — lùi ra để đủ đầu đến chân', cls:'near'}; }
+  const xs=L.map(p=>p.x), ys=L.map(p=>p.y);
+  const top=Math.min(...ys), bot=Math.max(...ys), lft=Math.min(...xs), rgt=Math.max(...xs);
+  if(top<0.02) return {ok:false,msg:'Đầu chạm mép trên — lùi lại một chút', cls:'near'};
+  if(bot>0.99) return {ok:false,msg:'Bàn chân chạm mép dưới — lùi lại', cls:'near'};
+  const cx=(lft+rgt)/2;
+  if(cx<0.33) return {ok:false,msg:'Dịch sang phải vào giữa khung', cls:'near'};
+  if(cx>0.67) return {ok:false,msg:'Dịch sang trái vào giữa khung', cls:'near'};
+  const h = bot-top;
+  if(h<0.55) return {ok:false,msg:'Tiến lại gần — người còn nhỏ trong khung', cls:'near'};
+  if(h>0.97) return {ok:false,msg:'Lùi ra — thấy chưa trọn', cls:'near'};
+  // orientation check (front vs side) via shoulder width / body height
+  const sw = Math.abs(L[11].x - L[12].x);
+  const orient = VIEWS[state.idx].orient;
+  if(orient==='side' && sw > 0.14) return {ok:false,msg:'Xoay nghiêng hơn — vai một bên gần camera', cls:'near'};
+  if(orient==='front' && sw < 0.08) return {ok:false,msg:'Quay thẳng mặt/lưng về camera', cls:'near'};
+  return {ok:true, msg:'Đã vào khung ✓ — bấm Đo', cls:'ok', L};
+}
+
+function drawSkeleton(L){
+  const cv=$('#overlay'), v=$('#video'); const w=cv.width=v.videoWidth||cv.clientWidth, h=cv.height=v.videoHeight||cv.clientHeight;
+  const g=cv.getContext('2d'); g.clearRect(0,0,w,h); if(!L) return;
+  g.save(); if(state.mirror){ g.translate(w,0); g.scale(-1,1); }
+  const E=[[11,12],[11,23],[12,24],[23,24],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28]];
+  g.strokeStyle='rgba(0,194,200,.85)'; g.lineWidth=Math.max(2,w*0.004); g.lineCap='round';
+  E.forEach(([a,b])=>{ if(L[a]&&L[b]){ g.beginPath(); g.moveTo(L[a].x*w,L[a].y*h); g.lineTo(L[b].x*w,L[b].y*h); g.stroke(); } });
+  g.fillStyle='#20D6D5'; L.forEach(p=>{ if(p.visibility===undefined||p.visibility>0.4){ g.beginPath(); g.arc(p.x*w,p.y*h,Math.max(2.5,w*0.005),0,7); g.fill(); } });
+  g.restore();
+}
+
+function loop(){
+  if(!state.running) return;
+  const v=$('#video');
+  if(state.usePose && state.landmarker && v.readyState>=2 && v.videoWidth){
+    let res; try{ res=state.landmarker.detectForVideo(v, performance.now()); }catch(e){}
+    const ev = evalPose(res);
+    drawSkeleton(ev.L);
+    setHint(ev.ok?'ok':(ev.cls==='near'?'warn':'bad'), ev.msg);
+    $('#guide').className = ev.ok?'ok':(ev.cls||'');
+    state.ready = ev.ok;
+    $('#btnShot').disabled = !ev.ok && !state.allowManual;
+    if(ev.ok){ if(!state.stableSince) state.stableSince=performance.now(); }
+    else state.stableSince=0;
+  }else if(!state.usePose){
+    // manual mode: no pose, always allow capture
+    setHint('warn','Chế độ thủ công: canh người vào khung rồi bấm Đo');
+    $('#btnShot').disabled=false; state.ready=true;
+  }
+  requestAnimationFrame(loop);
+}
+let hintCls='';
+function setHint(cls,txt){ const h=$('#hint'); h.className=cls==='ok'?'ok':cls==='bad'?'bad':''; $('#hintTxt').textContent=txt; }
+
+// ---------- views / shots ----------
+function renderSteps(){
+  const s=$('#steps'); s.innerHTML=''; VIEWS.forEach((_,i)=>{ const el=document.createElement('i'); el.className=i<state.idx?'done':i===state.idx?'on':''; s.appendChild(el); });
+  $('#topSub').textContent='Mặt '+(state.idx+1)+'/4';
+  $('#viewTag').textContent=VIEWS[state.idx].name;
+}
+function renderThumbs(){
+  const t=$('#thumbs'); t.innerHTML='';
+  VIEWS.forEach((vw,i)=>{ const d=document.createElement('div'); d.className='t'+(state.shots[vw.k]?' done':'')+(i===state.idx?' cur':'');
+    if(state.shots[vw.k]){ d.style.backgroundImage='url('+state.shots[vw.k]+')'; d.innerHTML='<span class="ck">✓</span>'; }
+    else d.textContent=vw.name.split(' ')[0];
+    d.onclick=()=>{ state.idx=i; renderSteps(); renderThumbs(); };
+    t.appendChild(d); });
+}
+function capture(){
+  const v=$('#video'); if(!v.videoWidth) return;
+  const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+  const g=c.getContext('2d');
+  // store a NON-mirrored image (true geometry) regardless of preview mirror
+  g.drawImage(v,0,0,c.width,c.height);
+  state.shots[VIEWS[state.idx].k]=c.toDataURL('image/jpeg',0.92);
+  renderThumbs();
+  // flash
+  const f=document.createElement('div'); f.style.cssText='position:absolute;inset:0;background:#fff;z-index:30;animation:fl .3s ease';
+  $('#stage').appendChild(f); setTimeout(()=>f.remove(),300);
+  // advance
+  const nextMissing = VIEWS.findIndex((vw,i)=>i>state.idx && !state.shots[vw.k]);
+  if(VIEWS.every(vw=>state.shots[vw.k])){ openReview(); return; }
+  state.idx = nextMissing>=0?nextMissing:VIEWS.findIndex(vw=>!state.shots[vw.k]);
+  state.stableSince=0; renderSteps(); renderThumbs();
+}
+function countdownCapture(){
+  if($('#cnt').dataset.run) return;
+  let n=3; const el=$('#cnt'); el.dataset.run=1; el.classList.remove('hide'); el.textContent=n; $('#btnShot').querySelector('.ring').style.opacity=0;
+  const iv=setInterval(()=>{ n--; if(n<=0){ clearInterval(iv); el.classList.add('hide'); el.dataset.run=''; $('#btnShot').querySelector('.ring').style.opacity=1; capture(); } else el.textContent=n; },700);
+}
+
+// ---------- review ----------
+function openReview(){
+  state.running=false; stopStream();
+  $('#stage').classList.add('hide'); $('#pReview').classList.remove('hidden');
+  const g=$('#revGrid'); g.innerHTML='';
+  VIEWS.forEach((vw,i)=>{ const d=document.createElement('div'); d.className='g'+(state.shots[vw.k]?' done':'');
+    if(state.shots[vw.k]) d.style.backgroundImage='url('+state.shots[vw.k]+')';
+    d.innerHTML+='<div class="lb">'+vw.name+'</div>';
+    d.onclick=()=>{ state.idx=i; backToCapture(); };
+    g.appendChild(d); });
+}
+async function backToCapture(){
+  $('#pReview').classList.add('hidden'); $('#stage').classList.remove('hide');
+  renderSteps(); renderThumbs(); state.running=true; await startStream(); loop();
+}
+
+// ---------- output / integration hook ----------
+function finish(){
+  const out = {}; VIEWS.forEach(vw=> out[vw.k]=state.shots[vw.k]); // dataURL JPEG, non-mirrored
+  // Integration: send to host app. In vongdo.html, wire each view into the existing photo analysis.
+  if(window.parent && window.parent!==window){ window.parent.postMessage({type:'alphascan-capture', views:out},'*'); }
+  window.AlphaScanCapture = out;
+  // demo: offer download
+  $('#revMsg').textContent='Đã lấy 4 ảnh (JPEG). Trong app: tự đưa vào bước phân tích đo.';
+  VIEWS.forEach(vw=>{ const a=document.createElement('a'); a.href=out[vw.k]; a.download='dotuthe_'+vw.k+'.jpg'; a.click(); });
+}
+
+// ---------- wire ----------
+function buildStartCam(){
+  const w=$('#startCam'); w.innerHTML='';
+  if(isMobile){ w.innerHTML='<span class="small">Dùng camera điện thoại · có thể đổi trước/sau khi đo</span>'; }
+}
+async function begin(){
+  $('#pStart').classList.add('hidden'); $('#stage').classList.remove('hide');
+  renderSteps(); renderThumbs(); setHint('warn','Đang mở camera…');
+  const ok = await startStream(); if(!ok) return;
+  $('#startMsg').textContent='';
+  setHint('warn','Đang tải nhận diện tư thế…');
+  await initPose();
+  if(!state.usePose){ state.allowManual=true; setHint('warn','Không tải được nhận diện — chuyển chế độ thủ công.'); }
+  state.running=true; loop();
+}
+$('#btnStart').onclick=begin;
+$('#btnShot').onclick=()=>{ countdownCapture(); };
+$('#btnRetake').onclick=()=>{ delete state.shots[VIEWS[state.idx].k]; renderThumbs(); setHint('warn','Chụp lại mặt '+VIEWS[state.idx].name); };
+$('#btnFlip').onclick=async()=>{ state.facing = state.facing==='user'?'environment':'user'; await startStream(); };
+$('#btnRedo').onclick=async()=>{ state.shots={}; state.idx=0; $('#pReview').classList.add('hidden'); $('#stage').classList.remove('hide'); renderSteps(); renderThumbs(); state.running=true; await startStream(); loop(); };
+$('#btnDone').onclick=finish;
+const style=document.createElement('style'); style.textContent='@keyframes fl{from{opacity:.9}to{opacity:0}}'; document.head.appendChild(style);
+buildStartCam();
+// pre-list cams (labels after permission) for desktop pick
+listCams();
+</script>
+</body>
+</html>
