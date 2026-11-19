@@ -68,7 +68,7 @@ td .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right
 .charts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 @media(max-width:760px){.charts{grid-template-columns:1fr 1fr}}
 .charts canvas{width:100%;height:120px;border:1px solid var(--line);border-radius:10px;background:#fff}
-.vwrap{position:relative;width:100%;height:520px;border-radius:12px;overflow:hidden;background:linear-gradient(#1A1D20,#0E1012)}
+.vwrap{position:relative;width:100%;height:520px;border-radius:12px;overflow:hidden;background:radial-gradient(130% 95% at 50% 22%,#2B3147 0%,#161A24 52%,#0C0E14 100%)}
 @media(max-width:760px){.vwrap{height:460px}}
 .vwrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 #viewer{cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
@@ -1569,10 +1569,18 @@ if (typeof module !== 'undefined') module.exports = VDA;
       'void main(){vec3 q=p;q.y-=mid;float x1=q.x*rot.x+q.z*rot.y;float z1=-q.x*rot.y+q.z*rot.x;float y2=q.y*rot.z-z1*rot.w;float z2=q.y*rot.w+z1*rot.z;' +
       'float nx1=n.x*rot.x+n.z*rot.y;float nz1=-n.x*rot.y+n.z*rot.x;vn=vec3(nx1,n.y*rot.z-nz1*rot.w,n.y*rot.w+nz1*rot.z);vc=c;vy=p.y/(2.0*mid);' +
       'gl_Position=vec4((tf.z+x1*tf.x)/hs.x,(y2*tf.x-tf.w)/hs.y,-z2/dr,1.0);}';
-    var fs = 'precision mediump float;varying vec3 vn;varying vec3 vc;varying float vy;uniform float human;uniform vec4 band;void main(){vec3 N=normalize(vn);if(!gl_FrontFacing)N=-N;' +
-      'float l=max(dot(N,normalize(vec3(0.35,0.55,0.76))),0.0);float h=0.5+0.5*N.y;float rim=pow(1.0-max(N.z,0.0),3.0);' +
-      'vec3 base=vc;if(human>0.5){base=vec3(0.74,0.79,0.80);if(vc.z>0.5&&((vy>band.x&&vy<band.y)||(vy>band.z&&vy<band.w)))base=vec3(0.20,0.25,0.28);}' +
-      'vec3 col=base*(0.30+0.62*l+0.12*h)+vec3(0.10,0.13,0.13)*rim;gl_FragColor=vec4(col,1.0);}';
+    // Shader studio: ambient bán cầu + đèn chính/phụ/viền + AO xấp xỉ + fresnel sheen + tone mapping ACES + gamma
+    var fs = 'precision mediump float;varying vec3 vn;varying vec3 vc;varying float vy;uniform float human;uniform vec4 band;' +
+      'vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);}' +
+      'void main(){vec3 N=normalize(vn);if(!gl_FrontFacing)N=-N;' +
+      'vec3 base=vc;if(human>0.5){base=vec3(0.83,0.85,0.87);if(vc.z>0.5&&((vy>band.x&&vy<band.y)||(vy>band.z&&vy<band.w)))base=vec3(0.13,0.16,0.22);}' +
+      'vec3 Lk=normalize(vec3(0.45,0.65,0.70));vec3 Lf=normalize(vec3(-0.6,0.15,0.5));vec3 Lr=normalize(vec3(0.0,0.3,-1.0));' +
+      'float key=max(dot(N,Lk),0.0);float fill=max(dot(N,Lf),0.0)*0.35;float rim=pow(max(dot(N,Lr),0.0),2.0)*0.6;' +
+      'float hemi=0.5+0.5*N.y;float ao=0.55+0.45*hemi;vec3 amb=mix(vec3(0.20,0.19,0.18),vec3(0.55,0.60,0.66),hemi);' +
+      'float fres=pow(1.0-max(N.z,0.0),3.0);' +
+      'vec3 lit=base*(amb*0.9*ao+vec3(1.0,0.98,0.95)*key*0.95+vec3(0.70,0.78,0.90)*fill);' +
+      'lit+=vec3(0.85,0.92,1.0)*rim*0.5;lit+=vec3(0.90,0.95,1.0)*fres*0.08;' +
+      'vec3 col=aces(lit*1.05);col=pow(col,vec3(1.0/2.2));gl_FragColor=vec4(col,1.0);}';
     function sh(t, s){ var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
     var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr);
     if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return false;

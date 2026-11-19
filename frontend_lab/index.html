@@ -357,6 +357,8 @@ const I18N={ vi:{
   ib_noclient:'Please create/identify a client first (Step 1).', ib_has_sheet:'(sheet already attached)',
   ib_req:'⚠ Missing required data: Weight + PBF. The system will not save when these are missing.', ib_pbf_range:'⚠ PBF out of valid range (3–70%). Please check.',
   ib_ocr_nofile:'No sheet image selected. Tap "Choose sheet image/PDF" first.',
+  ib_ocr_needlogin:'Sign in with a coach account (Connect button) before using AI extraction.',
+  ib_ocr_nolab:'Supabase core is not configured. Open ⚙ Connect.',
   ib_ocr_pdf:'PDF is sent to the Alpha Scan server for extraction and is not stored after processing.',
   ib_ocr_loading:'Loading the recogniser & reading the sheet… (needs Internet the first time)',
   tg_forecast:'FORECAST', dm_forecast_sub:'Forecast when the goal is reached (AI)', dm_session:'Measurement', dm_goal_t:'InBody goal', dm_goal_weight:'Target weight', dm_goal_wfc:'Weight / fat / muscle',
@@ -649,6 +651,7 @@ document.addEventListener('DOMContentLoaded', applyLang);
   <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
     <button id="cap_close" style="background:#EFE9DD;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:9px 16px;font-size:13px;cursor:pointer">Đóng</button>
     <button id="cap_apply" style="display:none;background:#F3ECDD;color:var(--acc);border:1px solid var(--acc);border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Áp kết quả vào mô hình 3D →</button>
+    <button id="cap_send_app" style="display:none;background:#06281f;color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">Cập nhật Posture Score → App hội viên</button>
     <button id="cap_save" style="background:linear-gradient(120deg,var(--acc),var(--neon));color:#fff;border:0;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer">Lưu vào lần đo</button>
   </div>
  </div>
@@ -2208,21 +2211,23 @@ async function ocrInBody(){ const msg=$('#ib_ocrmsg'); const EN=(LANG==='en');
   if(!__ibFile){ msg.textContent=t('ib_ocr_nofile','Chưa chọn ảnh phiếu. Bấm "Chọn ảnh/PDF phiếu" trước.'); return; }
   const cns=$('#ib_ai_consent');
   if(!cns||!cns.checked){ msg.innerHTML='⚠ '+t('ib_ocr_needconsent','Hãy tích ô đồng ý gửi ảnh phiếu tới dịch vụ AI để trích số (dữ liệu sức khỏe) trước.'); return; }
-  const cfg=(window.AlphaPlusPro&&typeof AlphaPlusPro.loadCfg==='function')?AlphaPlusPro.loadCfg():{url:(location.origin||''),apiKey:''};
-  const base=String((cfg&&cfg.url)||'').replace(/\/$/,''); const key=String((cfg&&cfg.apiKey)||'');
-  if(!base){ msg.innerHTML='⚠ '+t('ib_ocr_nocore','Chưa cấu hình Server Alpha Scan. Mở ⚙ Kết nối → Server 3D Alpha Scan Plus/PRO.'); return; }
+  // Trích InBody chạy trên Supabase Edge Function "inbody-extract" của lõi (AK.cfg.url) — tách khỏi Server 3D.
+  // Xác thực bằng phiên đăng nhập coach; quyền do asl_can_use() phía server quyết định.
+  if(typeof AK!=='object'||!AK.cfg||!AK.cfg.url||!AK.cfg.anonKey){ msg.innerHTML='⚠ '+t('ib_ocr_nolab','Chưa cấu hình lõi Supabase. Mở ⚙ Kết nối.'); return; }
+  let token=null; try{ const c=await akClient(); const ss=await c.auth.getSession(); token=ss&&ss.data&&ss.data.session&&ss.data.session.access_token; }catch(_){}
+  if(!token){ msg.innerHTML='⚠ '+t('ib_ocr_needlogin','Hãy đăng nhập tài khoản coach (nút Kết nối) trước khi trích số bằng AI.'); return; }
+  const endpoint=String(AK.cfg.url).replace(/\/+$/,'')+'/functions/v1/inbody-extract/api/v1/inbody/extract';
   msg.textContent=t('ib_ocr_sending','Đang gửi phiếu tới dịch vụ AI để trích số…');
   const btn=$('#ib_ocr'); if(btn)btn.disabled=true;
   const ctrl=new AbortController(), timer=setTimeout(()=>ctrl.abort(),65000);
   try{
     const form=new FormData(); form.append('file',__ibFile,__ibFile.name||'inbody-upload'); form.append('consent_granted','true');
-    const headers={}; if(key)headers.Authorization='Bearer '+key;
-    if(/ngrok/i.test(base))headers['ngrok-skip-browser-warning']='true';
-    const r=await fetch(base+'/api/v1/inbody/extract',{method:'POST',headers:headers,body:form,signal:ctrl.signal});
+    const headers={Authorization:'Bearer '+token, apikey:AK.cfg.anonKey};
+    const r=await fetch(endpoint,{method:'POST',headers:headers,body:form,signal:ctrl.signal});
     let j=null; try{ j=await r.json(); }catch(_){}
     if(!r.ok||!j||!j.ok){
       const detail=(j&&(j.detail||j.error))||('HTTP '+r.status);
-      const hint=r.status===401?'Kiểm tra API Key của Server Alpha Scan.':r.status===429?'OpenAI đã hết quota hoặc bị giới hạn tốc độ.':r.status===504?'OCR quá 60 giây; thử ảnh rõ hơn hoặc ảnh đã cắt sát phiếu.':r.status===503?'Server chưa cấu hình OPENAI_API_KEY hoặc dịch vụ AI đang gián đoạn.':'Kiểm tra file rồi thử lại hoặc nhập tay.';
+      const hint=r.status===401?'Đăng nhập lại tài khoản coach (nút Kết nối).':r.status===403?'Liên hệ quản trị để được cấp quyền Alpha Scan Lab.':r.status===429?'OpenAI đã hết quota hoặc bị giới hạn tốc độ.':r.status===504?'OCR quá 60 giây; thử ảnh rõ hơn hoặc ảnh đã cắt sát phiếu.':r.status===503?'Function inbody-extract chưa cấu hình OPENAI_API_KEY hoặc dịch vụ AI đang gián đoạn.':'Kiểm tra file rồi thử lại hoặc nhập tay.';
       msg.textContent='⚠ '+t('ib_ocr_fail','Không trích được số')+': '+detail+'. '+hint; return;
     }
     const d=j.data||{};
@@ -2493,6 +2498,7 @@ function resetCapture(){
   ['front','side','back'].forEach(k=>{const e=$('#cap_'+k); if(e)e.value='';});
   const r=$('#cap_result'); if(r)r.style.display='none';
   const ap=$('#cap_apply'); if(ap)ap.style.display='none';
+  const sa=$('#cap_send_app'); if(sa){ sa.style.display='none'; sa.disabled=false; sa.textContent='Cập nhật Posture Score → App hội viên'; }
   const stt=$('#cap_status'); if(stt)stt.textContent='';
   if($('#btnCapture'))$('#btnCapture').innerHTML=t('btn_capture','Chụp tư thế (2 góc)');
 }
@@ -2527,6 +2533,7 @@ async function runPostureAnalysis(shots){ const st=$('#cap_status');
     <div style="font-size:11.5px;color:var(--mut);margin-top:8px">${__poseDevs.length?('Phát hiện '+__poseDevs.length+' điểm lệch đáng chú ý.'):'Tư thế cân đối — không có điểm lệch đáng kể.'}</div>
     <div style="font-size:10.5px;color:var(--warn);margin-top:6px;line-height:1.5">⚠ Góc đo từ <b>ảnh 2D</b> — phụ thuộc góc chụp & phối cảnh; <b>không khẳng định góc khớp 3D</b>. Mốc không nhận được ghi "Chưa đủ dữ liệu". Ngưỡng lâm sàng chờ Kelly ký (LP-5, không chẩn đoán).</div></div>`;
   $('#cap_apply').style.display='inline-block';
+  { var _sa=$('#cap_send_app'); if(_sa){ _sa.style.display=(AK&&AK._activeMemberId)?'inline-block':'none'; _sa.disabled=false; _sa.textContent='Cập nhật Posture Score → App hội viên'; } }
   st.textContent='✓ Đã phân tích xong.';
 }
 /* ===================== Bước 3: Chụp tư thế 2 góc ===================== */
@@ -2567,6 +2574,7 @@ function initCapture(){
   if($('#cap_flip'))$('#cap_flip').onclick=()=>{camFacing=camFacing==='environment'?'user':'environment';startCam();};
   if($('#cap_camClose'))$('#cap_camClose').onclick=stopCam;
   // ----- Áp / Lưu -----
+  const saBtn=$('#cap_send_app'); if(saBtn)saBtn.onclick=akSendPostureToApp;
   const ap=$('#cap_apply'); if(ap)ap.onclick=()=>{ if(!__poseDevs){return;} stopCam();
     // chỉ ghi vào SESSIONS khi ĐANG ở chế độ demo — khách thật dùng currentDevs, không đụng dữ liệu mẫu
     if(isDemoMode()&&typeof SESSIONS!=='undefined'&&SESSIONS[DISP]){SESSIONS[DISP].shots=Object.assign({},CAPSHOTS);SESSIONS[DISP].height=+$('#cap_h').value||SESSIONS[DISP].height;
@@ -2819,14 +2827,118 @@ function akPickPersonId(d){
   return akFind(d,['person_id']) || akFind(d,['pid','id']);   // ưu tiên person_id ở mọi cấp, rồi pid/id
 }
 
+/* ---- CỔNG VAI COACH: chỉ vai 'coach' (theo ALM toi_la_ai) mới dùng được Lab ----
+   ⚠ Đây là lớp UX. Lớp bảo mật THẬT phải ở backend: các RPC ghi của Lab
+   (lab_submit_assessment, tt_chon_khach, ak_lay_hoac_tao_person, consent_apply)
+   phải tự kiểm caller là coach (RLS/RPC) — việc cho Phi. Rulebook 10: không dùng
+   hiển thị frontend làm lớp bảo mật. */
+var AK_SUPER_EMAIL='annie.rogers@thea.com.vn';   // super admin: hard-locked, mọi vai (gồm COACH)
+function akRoleHasCoach(d){
+  if(!d) return false;
+  if(d.super||d.is_super||d.super_admin||d.la_super) return true;   // super admin = mọi vai
+  var hay=[];
+  if(typeof d.vai==='string') hay.push(d.vai);
+  if(Array.isArray(d.vai)) hay=hay.concat(d.vai);
+  if(Array.isArray(d.vais)) hay=hay.concat(d.vais);
+  if(Array.isArray(d.roles)) hay=hay.concat(d.roles);
+  if(Array.isArray(d.clb)) d.clb.forEach(function(x){ if(x&&typeof x.vai==='string')hay.push(x.vai); });
+  var s=hay.join(' ').toLowerCase();
+  return s.indexOf('coach')>=0 || s.indexOf('super_admin')>=0 || s.indexOf('super admin')>=0;
+}
+async function akCheckCoach(){
+  // → {ok, isCoach, vai, ten, reason, backend}
+  // CỔNG THẬT: backend asl_can_use() (cấp quyền theo TỪNG coach, sau đào tạo).
+  // Super admin luôn qua. Nếu asl_can_use() CHƯA deploy (hàm không tồn tại) →
+  // fallback: kiểm vai COACH qua toi_la_ai() để Lab không gãy trước khi dán SQL.
+  var email=((AK.coach&&AK.coach.email)||'').toLowerCase();
+  try{
+    var a=await akRpc('asl_can_use',{});
+    if(a && typeof a.can_use!=='undefined'){
+      AK.me=a; AK.isCoach=!!a.can_use;
+      return {ok:true,isCoach:!!a.can_use,vai:a.vai,ten:a.ten,
+              reason:a.reason||(a.can_use?'granted':'not_granted'),backend:true};
+    }
+  }catch(e){
+    var m=(e&&e.message||'').toLowerCase();
+    var missing=/could not find|does not exist|schema cache|404/.test(m);
+    if(!missing && email!==AK_SUPER_EMAIL)
+      return {ok:false,isCoach:false,reason:'rpc_fail',msg:e.message};
+    // hàm chưa deploy → rơi xuống fallback bên dưới
+  }
+  // FALLBACK (backend chưa có asl_can_use): kiểm vai COACH qua toi_la_ai()
+  var d; try{ d=await akRpc('toi_la_ai',{}); }
+  catch(e){ return {ok:false,isCoach:false,reason:'rpc_fail',msg:e.message}; }
+  if(!d || d.ok===false) return {ok:false,isCoach:false,vai:(d&&d.vai)||null,reason:'no_profile'};
+  var isCoach=akRoleHasCoach(d) || email===AK_SUPER_EMAIL;   // super admin luôn qua
+  AK.me=d; AK.isCoach=isCoach;
+  return {ok:true,isCoach:isCoach,vai:d.vai,ten:d.ten,reason:isCoach?'ok':'not_coach',backend:false};
+}
+function akCoachDenyMsg(chk){
+  switch(chk.reason){
+    case 'rpc_fail': return 'Không xác minh được quyền trên hệ thống (lỗi kết nối'+(chk.msg?': '+chk.msg:'')+'). Thử lại hoặc kiểm tra mạng.';
+    case 'no_profile':
+    case 'no_staff_profile': return 'Tài khoản chưa gắn hồ sơ nhân sự trên ALM — liên hệ HR để cấp vai.';
+    case 'not_coach': return 'Tài khoản này KHÔNG có vai COACH (vai hiện tại: '+(chk.vai||'—')+'). Chỉ COACH được dùng Alpha Scan Lab.';
+    case 'staff_inactive': return 'Hồ sơ nhân sự đang KHÔNG hoạt động (inactive). Liên hệ HR.';
+    case 'not_granted': return 'Bạn có vai COACH nhưng CHƯA được cấp quyền dùng Alpha Scan Lab. Cần hoàn thành đào tạo và được super admin cấp quyền.';
+    default: return 'Tài khoản chưa đủ quyền dùng Alpha Scan Lab.';
+  }
+}
+/* ---- QUẢN TRỊ quyền (chỉ super admin): cấp/thu hồi theo từng coach ---- */
+function aslIsSuper(){
+  return !!(AK.me && (AK.me.is_super||AK.me.super||AK.me.super_admin))
+    || ((AK.coach&&AK.coach.email||'').toLowerCase()===AK_SUPER_EMAIL);
+}
+async function aslRenderAdmin(){
+  var box=document.getElementById('asl_admin'); if(!box) return;
+  if(!aslIsSuper()){ box.style.display='none'; return; }
+  box.style.display='block';
+  var list=document.getElementById('asl_admin_list'); if(!list) return;
+  list.innerHTML='<div style="font-size:12px;color:#94a3b8">Đang tải danh sách coach…</div>';
+  try{
+    var rows=await akRpc('asl_access_list',{});
+    if(!Array.isArray(rows)){ list.innerHTML='<div style="font-size:12px;color:#b45309">Chưa deploy backend phân quyền. Dán file SQL rồi mở lại.</div>'; return; }
+    if(!rows.length){ list.innerHTML='<div style="font-size:12px;color:#94a3b8">Không có coach nào trên ALM.</div>'; return; }
+    list.innerHTML=rows.map(function(r){
+      var on=!!r.can_use, nm=(r.full_name||'—'), em=(r.email||'');
+      var sub=em+(r.trained_at?(' · ĐT '+r.trained_at):'');
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #f1f5f9">'
+        +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:#0f172a;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+nm+'</div>'
+        +'<div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sub+'</div></div>'
+        +'<button onclick="aslToggle(\''+r.staff_id+'\','+(on?'false':'true')+')" style="background:'+(on?'#0f766e':'#e2e8f0')+';color:'+(on?'#fff':'#475569')+';border:0;border-radius:999px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap">'+(on?'✓ Được dùng':'Đã khoá')+'</button>'
+        +'</div>';
+    }).join('');
+  }catch(e){
+    var m=(e&&e.message||'');
+    if(/CHI_SUPER_ADMIN/.test(m)){ box.style.display='none'; return; }
+    list.innerHTML='<div style="font-size:12px;color:#b45309">'+(/could not find|schema cache|does not exist/i.test(m)?'Chưa deploy backend phân quyền (dán file SQL rồi mở lại).':('Lỗi: '+m))+'</div>';
+  }
+}
+async function aslToggle(staffId,on){
+  try{
+    await akRpc('asl_access_set',{p_staff_id:staffId,p_can_use:on,
+      p_trained_at:(on?new Date().toISOString().slice(0,10):null),
+      p_note:(on?'Cấp quyền từ Lab (super admin)':'Thu hồi từ Lab (super admin)')});
+    akToast(on?'✓ Đã cấp quyền dùng Alpha Scan Lab':'Đã khoá quyền');
+    aslRenderAdmin();
+  }catch(e){ akToast('⚠ '+(e.message||e),true); }
+}
+
 /* ---- đăng nhập coach (Role 4) ---- */
 async function akLogin(email,pw){
   const c=await akClient();
   const {data,error}=await c.auth.signInWithPassword({email,password:pw});
-  if(error) throw new Error(error.message); AK.coach=data.user; akStatus(); try{akEnterPending();}catch(_){} return data.user;
+  if(error) throw new Error(error.message);
+  AK.coach=data.user;
+  const chk=await akCheckCoach();
+  if(!chk.isCoach){ await akLogout(); throw new Error(akCoachDenyMsg(chk)); }
+  akStatus(); try{akEnterPending();}catch(_){} return data.user;
 }
-async function akLogout(){ try{if(AK._c)await AK._c.auth.signOut();}catch(_){} AK.coach=null; AK.person_id=null; akStatus(); }
-async function akRestore(){ try{const c=await akClient(); const {data}=await c.auth.getSession(); if(data&&data.session)AK.coach=data.session.user;}catch(_){} akStatus(); try{akEnterPending();}catch(_){} try{if(window.akLoadBookings)akLoadBookings();}catch(_){} }
+async function akLogout(){ try{if(AK._c)await AK._c.auth.signOut();}catch(_){} AK.coach=null; AK.person_id=null; AK.isCoach=false; AK.me=null; akStatus(); }
+async function akRestore(){ try{const c=await akClient(); const {data}=await c.auth.getSession();
+    if(data&&data.session){ AK.coach=data.session.user; const chk=await akCheckCoach();
+      if(!chk.isCoach){ await akLogout(); } } }catch(_){}
+  akStatus(); try{akEnterPending();}catch(_){} try{if(window.akLoadBookings)akLoadBookings();}catch(_){} }
 
 /* ---- nối person + đồng thuận khi chốt khách (gọi từ finalizeClient) ---- */
 async function akOnClientFinalized(cl){
@@ -2860,6 +2972,38 @@ async function akOnClientFinalized(cl){
   }catch(e){ akToast('⚠ Lõi: '+(e.message||e),true); console.log('[AK] lỗi',e); }
 }
 window.akOnClientFinalized=akOnClientFinalized;
+/* ---- NỐI person_id + đồng thuận khi BẮT ĐẦU ĐO từ lịch (member_id) · 19/11 ----
+   P0-02: CHỈ tạo person + GRANT khi coach xác nhận hội viên ĐỒNG Ý "Lưu server".
+   Không đồng ý ⇒ không tạo person; vẫn cập nhật Điểm tư thế qua luồng member. */
+// member_id đang hoạt động: ưu tiên _activeMemberId, rồi suy từ lịch đang đo
+function akActiveMemberId(){
+  if(AK._activeMemberId) return AK._activeMemberId;
+  try{ if(AK._activeBooking && AK._bookings){
+    var b=AK._bookings.filter(function(x){return x.booking_id===AK._activeBooking;})[0];
+    if(b) return b.member_id||null; } }catch(_){}
+  return null;
+}
+// Nối person_id + đồng thuận TỰ ĐỘNG (buổi đo đã đặt lịch = có chủ đích). Không confirm chặn.
+async function akEnsurePersonConsent(mid){
+  if(AK.person_id) return AK.person_id;
+  mid = mid || akActiveMemberId();
+  if(!mid) return null;
+  try{
+    var r=await akRpc('ak_lay_hoac_tao_person',{p_member_id:mid,p_auth_user_id:null,p_nguon:'alpha_scan_lab'},'public');
+    if(!(r&&r.ok&&r.person_id)){ akToast('⚠ Không nối được ONE Health ID'+(r&&r.msg?': '+r.msg:''),true); return null; }
+    AK.person_id=r.person_id;
+    try{
+      await akRpc('consent_apply',{p_person:r.person_id,p_purpose:'ALPHA_SCAN',p_action:'GRANT',
+        p_scope:null,p_basis:'consent',p_note:'Alpha Scan Lab · buổi đo đã đặt lịch',
+        p_by:(AK.coach&&AK.coach.id)||null},'alpha_scan');
+      akToast('✓ ONE Health ID '+String(r.person_id).slice(0,8)+'… · đồng thuận ALPHA_SCAN = GRANTED');
+    }catch(e){ akToast('Đã nối ONE Health ID; đồng thuận: '+(e.message||e),true); }
+    akStatus();
+    return r.person_id;
+  }catch(e){ akToast('⚠ Nối person lỗi: '+(e.message||e),true); return null; }
+}
+window.akEnsurePersonConsent=akEnsurePersonConsent;
+window.akActiveMemberId=akActiveMemberId;
 // Từ kết quả tt_tim_khach/tt_tao_khach (có ket_qua) → chọn 1 ứng viên → tt_chon_khach → person_id
 async function akResolveCandidate(resp){
   const cands = resp && resp.ket_qua;
@@ -2974,6 +3118,7 @@ function akAgeSave(){
 }
 async function akEnterWithPerson(pid, prof, cand){
   AK.person_id=pid;
+  AK._activeMemberId=null;   // chỉ gắn lại khi vào từ LỊCH ĐO (có member_id) — tránh ghi nhầm người
   const g=(re,def)=>{ if(!prof) return def; for(const k of Object.keys(prof)){ if(re.test(k)&&prof[k]!=null&&prof[k]!=='') return prof[k]; } return def; };
   const name=g(/full_name|ho_ten|^name$|display_name|ten/i,(cand&&cand.ten))||'Khách';
   const sexRaw=String(g(/gender|gioi/i,'')).toLowerCase();
@@ -3125,7 +3270,8 @@ function openBodyEdit(){
   document.getElementById('bodyEditModal').style.display='flex';
 }
 function saveBodyEdit(){
-  const c=SAFETY.client; if(!c) return;
+  const c=SAFETY.client;
+  if(!c){ akToast('Chưa có hội viên đang mở — bấm "Đo" ở một lịch (hoặc nạp hồ sơ khách) rồi mới lưu số đo.',true); return; }
   const num=id=>{const e=document.getElementById(id); return _n(e?e.value:''); };
   const h=num('be_h'), w=num('be_w');
   if(h) c.height=h; if(w) c.weight=w;
@@ -3206,9 +3352,14 @@ function akBuildPayload(module){
     scores: (pscore!=null?[{scope:'overall',key:'posture',value:pscore,tier:null,norm_ref:'0-100',algorithm_version:'posture_2d_v1'}]:[])};
 }
 async function akSubmit(module){
+  // [18/11 · CEO gộp nút] Tư thế: CHƯA có person_id nhưng CÓ member_id (vào từ lịch)
+  //   → chạy luồng native member (ak_posture_lab_submit), không cần person_id/đồng thuận clinical.
+  if(module==='posture' && !AK.person_id && akActiveMemberId()){ await akSendPostureMember(); return; }
   if(!AK.allowSubmit){ akToast(t('ak_t_submit_locked','Submit (lab_submit_assessment · I2) chưa được anh Phi duyệt. Chỉ mở trên server TEST khi đặt AK.allowSubmit=true.'),true); return; }
   if(!AK.coach){ akToast(t('ak_t_nocoach','Chưa đăng nhập coach.'),true); return; }
-  if(!AK.person_id){ akToast(t('ak_t_nopid','Chưa có person_id (cần đồng thuận "server" ở cổng intake).'),true); return; }
+  // Tự nối person_id + đồng thuận nếu còn thiếu mà có lịch đang đo (tự chữa, không kẹt)
+  if(!AK.person_id){ try{ await akEnsurePersonConsent(); }catch(_){} }
+  if(!AK.person_id){ akToast(t('ak_t_nopid','Chưa có person_id — hãy bấm "Bắt đầu đo" ở một lịch trước (để nối ONE Health ID).'),true); return; }
   try{
     const payload=akBuildPayload(module||'composition');
     const r=await akRpc(AK.rpc.submit.fn,AK.rpc.submit.args(payload),AK.rpc.submit.schema);
@@ -3228,6 +3379,66 @@ async function akSubmit(module){
     }
   }catch(e){ akToast(t('ak_t_submit_err','⚠ Submit lỗi: ')+(e.message||e),true); }
 }
+
+/* ===== POSTURE → App hội viên (auto ngay · CEO 18/11) =====
+   Map điểm 2D → level 1–6 (NGƯỠNG TẠM — chờ Mr. Kelly ký · LP-5·BH-3),
+   đóng gói 'auto' đúng khuôn native rồi gọi ak_posture_lab_submit (member_id). */
+function postureLevelFromScore(sc){
+  if(sc==null) return 3;                 // cao điểm = tốt = level thấp; level≥5 ⇒ nên tư vấn
+  if(sc>=90) return 1; if(sc>=80) return 2; if(sc>=70) return 3;
+  if(sc>=60) return 4; if(sc>=45) return 5; return 6;
+}
+function akBuildPostureAuto(devs){
+  devs = devs || (typeof __poseDevs!=='undefined'&&__poseDevs) || [];
+  var sc=(typeof pScore==='function'&&devs.length)?pScore(devs):null;
+  var flags=devs.filter(function(d){return d.sev>=0.62;}).length;
+  var warns=devs.filter(function(d){return d.sev>=0.42&&d.sev<0.62;}).length;
+  var views=0; try{['front','side','back'].forEach(function(k){if(__poseImgs&&__poseImgs[k])views++;});}catch(_){}
+  var photos={}; try{ photos=Object.assign({},__poseImgs); }catch(_){}
+  return { auto:{ score:sc, level:postureLevelFromScore(sc), so_chi_so:devs.length,
+                  flags:flags, warns:warns, confidence:Math.min(0.9,0.3+0.2*views),
+                  engine_ver:'lab_2d_v1', detail:devs,
+                  metrics:(typeof __poseMetrics!=='undefined'?__poseMetrics:null) },
+           photos:photos };
+}
+/* Lõi chung: gửi tư thế vào App hội viên bằng member_id (không cần person_id).
+   Hiện thông báo NGAY trong màn chụp (#cap_status) để không bị modal che toast. */
+function _capSay(msg, bad){
+  try{ var s=document.getElementById('cap_status');
+    if(s){ s.textContent=msg; s.style.color = bad?'#ff5d7a':'#3fe0a0'; s.style.fontWeight='700'; } }catch(_){}
+  akToast(msg, !!bad);
+}
+async function akPostureToApp(devs, btn){
+  if(!AK.coach){ _capSay('Chưa đăng nhập coach — bấm "Kết nối" đăng nhập trước.',true); return false; }
+  var d = devs || (typeof __poseDevs!=='undefined'?__poseDevs:null);
+  if(!d || !d.length){ _capSay('Chưa có kết quả tư thế — chụp & phân tích trước.',true); return false; }
+  var mid=AK._activeMemberId||null;
+  if(!mid){ _capSay('Chưa gắn hội viên: hãy mở từ "Lịch đo → Bắt đầu đo" (có member_id) rồi mới chụp.',true); return false; }
+  var pack=akBuildPostureAuto(d);
+  if(btn){ btn.disabled=true; btn.textContent='Đang gửi…'; }
+  _capSay('Đang gửi điểm tư thế vào App…', false);
+  try{
+    var r=await akRpc('ak_posture_lab_submit',{p_member_id:mid, p:{auto:pack.auto, photos:pack.photos}},'public');
+    if(r&&r.ok){ _capSay('✓ Đã cập nhật Posture Score cho hội viên (L'+r.level+(r.tu_van?' · nên tư vấn':'')+').', false);
+      if(btn){ btn.textContent='✓ Đã cập nhật vào App'; } return true; }
+    var why=(r&&(r.loi||r.msg))||'Không ghi được';
+    if(/could not find|does not exist|schema cache/i.test(why)) why='Chưa chạy SQL ak_posture_lab_submit (VA_B) trên LÕI THẬT.';
+    _capSay('⚠ '+why, true);
+    if(btn){ btn.disabled=false; btn.textContent='Cập nhật Posture Score → App hội viên'; } return false;
+  }catch(e){ var m=(e&&e.message||e);
+    if(/could not find|does not exist|schema cache/i.test(m)) m='Chưa chạy SQL ak_posture_lab_submit (VA_B) trên LÕI THẬT.';
+    _capSay('⚠ '+m, true);
+    if(btn){ btn.disabled=false; btn.textContent='Cập nhật Posture Score → App hội viên'; } return false; }
+}
+/* Nút trong màn chụp (dùng ảnh vừa phân tích) */
+async function akSendPostureToApp(){
+  return akPostureToApp((typeof __poseDevs!=='undefined'?__poseDevs:null), document.getElementById('cap_send_app'));
+}
+/* Dùng cho nút "Gửi tư thế → App" khi CHƯA có person_id — dùng tư thế đang hiển thị */
+async function akSendPostureMember(){
+  return akPostureToApp((typeof currentDevs!=='undefined'?currentDevs:null), null);
+}
+
 /* Bật ghi I2. TEST: bật tự do. LIVE (pilot): phải xác nhận — chỉ dùng cho hội viên đã đồng ý. */
 function akToggleSubmit(on){
   if(on && AK.cfg.env==='live'){
@@ -3280,6 +3491,7 @@ function akStatus(){
   const lk=document.getElementById('ak_submitlock');
   if(lk) lk.innerHTML = AK.allowSubmit ? t('ak_lock_open','Ghi ĐANG BẬT (pilot) — nhớ TẮT sau buổi đo') : t('ak_lock_locked','Ghi đang TẮT (an toàn) — tích ô dưới để ghi buổi pilot');
   const es=document.getElementById('ak_enablesubmit'); if(es) es.checked=!!AK.allowSubmit;
+  try{ aslRenderAdmin(); }catch(_){}
 }
 /* ====== LỊCH ĐO CHO COACH (do_bookings) · ghép 06/11 ====== */
 function _bkPick(h,re){ if(!h)return null; for(var k in h){ if(re.test(k)&&h[k]!=null&&h[k]!=='') return h[k]; } return null; }
@@ -3355,8 +3567,11 @@ async function akBkStart(id){
   AK._activeBooking=id;
   var prof=b.ho_so||null; try{ prof=await akLoadProfile(b.person_id); }catch(_){}
   try{ await akEnterWithPerson(b.person_id, prof, {ten:akBkName(b)});
+    AK._activeMemberId=b.member_id||null;   // có member_id → cập nhật Posture Score vào App được
+    // Nối person_id + đồng thuận TỰ ĐỘNG (buổi đo đã đặt lịch) — mở đường ghi clinical
+    if(!AK.person_id && b.member_id){ try{ await akEnsurePersonConsent(b.member_id); }catch(_){} }
     var ov=document.getElementById('akPanel'); if(ov)ov.style.display='none';
-    akToast('✓ Đã nạp: '+akBkName(b)+' — tiến hành đo rồi "Gửi tư thế → App".');
+    akToast('✓ Đã nạp: '+akBkName(b)+' — đo xong bấm "Cập nhật Posture Score → App".');
   }catch(e){ akToast('⚠ '+(e.message||e),true); }
 }
 function akBuildPanel(){
@@ -3372,23 +3587,18 @@ function akBuildPanel(){
   ov.innerHTML=`<div style="background:#fff;max-width:480px;width:92vw;max-height:90vh;overflow:auto;border-radius:18px;padding:20px 20px 16px;box-shadow:0 24px 70px rgba(0,0,0,.35);font:14px/1.5 system-ui">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
       <b style="font-size:16px;color:#06281f" data-i18n="ak_h">Kết nối lõi App Khoẻ</b>
+      <span style="font-size:10px;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;border-radius:999px;padding:2px 7px;font-weight:700">build 19/11-C</span>
       <span style="margin-left:auto;cursor:pointer;font-size:20px;color:#64748b" onclick="document.getElementById('akPanel').style.display='none'">✕</span>
     </div>
     <div style="color:#64748b;font-size:12px;margin-bottom:12px" data-i18n="ak_intro">Dữ liệu sức khoẻ gắn <b>person_id</b> (ONE Health ID). Đồng thuận chạy khi coach chọn <b>"Lưu server"</b> ở cổng đánh giá.</div>
 
-    <div style="font-weight:700;color:#334155;margin:6px 0 4px" data-i18n="ak_s1">1 · Cấu hình lõi</div>
-    <label style="font-size:12px;color:#64748b">Supabase URL</label>
-    <input id="ak_url" placeholder="https://xxxx.supabase.co" style="width:100%;margin:3px 0 8px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px">
-    <label style="font-size:12px;color:#64748b">anon public key</label>
-    <input id="ak_key" placeholder="eyJhbGciOi..." style="width:100%;margin:3px 0 8px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px">
-    <label style="font-size:12px;color:#64748b" data-i18n="ak_env_l">Môi trường</label>
-    <select id="ak_env" style="width:100%;margin:3px 0 10px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px">
-      <option value="test" data-i18n="ak_env_test">TEST (qjpagoieyfklbcaoegjv) — khuyến nghị thử trước</option>
-      <option value="live" data-i18n="ak_env_live">LIVE (bdctqdpkogsthhfbbsse) — lõi thật</option>
-    </select>
-    <button onclick="AK.cfg.url=document.getElementById('ak_url').value.trim();AK.cfg.anonKey=document.getElementById('ak_key').value.trim();AK.cfg.env=document.getElementById('ak_env').value;AK._c=null;akSaveCfg();akRestore();akToast(t('ak_t_cfg_saved','Đã lưu cấu hình lõi.'));" style="width:100%;background:#0f766e;color:#fff;border:0;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;margin-bottom:14px" data-i18n="ak_save_cfg">Lưu cấu hình</button>
+    <!-- Cấu hình lõi (URL + anon key) đã nhúng sẵn & tự lưu — KHÔNG hiển thị (CEO 18/11). -->
+    <div style="display:flex;align-items:center;gap:8px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:9px 11px;margin:6px 0 14px;font-size:12px;color:#0f766e">
+      <span style="font-size:14px">🔒</span>
+      <span>Đã kết nối lõi <b>App Khoẻ</b> (tự động). Không cần nhập URL / khoá.</span>
+    </div>
 
-    <div style="font-weight:700;color:#334155;margin:6px 0 4px" data-i18n="ak_s2">2 · Đăng nhập Coach (Role 4)</div>
+    <div style="font-weight:700;color:#334155;margin:6px 0 4px" data-i18n="ak_s2">1 · Đăng nhập Coach</div>
     <div id="ak_who" style="font-size:12px;color:#475569;margin-bottom:6px" data-i18n="ak_who_none">— chưa đăng nhập —</div>
     <input id="ak_email" placeholder="email coach" data-i18n-ph="ak_email_ph" style="width:100%;margin:3px 0 8px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px">
     <input id="ak_pw" type="password" placeholder="mật khẩu" data-i18n-ph="ak_pw_ph" style="width:100%;margin:3px 0 8px;padding:9px 11px;border:1px solid #e2e8f0;border-radius:9px;font-size:13px">
@@ -3397,7 +3607,16 @@ function akBuildPanel(){
       <button onclick="akLogout().then(()=>akToast(t('ak_t_logout','Đã đăng xuất')))" style="background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer" data-i18n="ak_logout">Thoát</button>
     </div>
 
-    <div style="font-weight:700;color:#334155;margin:12px 0 4px">2.5 · Lịch đo (hội viên đặt từ App)</div>
+    <div id="asl_admin" style="display:none;margin:4px 0 16px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <b style="font-size:13px;color:#9a3412">⚙ Cấp quyền Alpha Scan Lab (super admin)</b>
+        <span style="margin-left:auto;cursor:pointer;font-size:12px;color:#9a3412;text-decoration:underline" onclick="aslRenderAdmin()">Làm mới</span>
+      </div>
+      <div style="font-size:11px;color:#9a3412;margin-bottom:8px">Chỉ coach đã qua đào tạo & được bật ở đây mới dùng được Lab. Tắt/bật từng người.</div>
+      <div id="asl_admin_list" style="max-height:260px;overflow:auto"></div>
+    </div>
+
+    <div style="font-weight:700;color:#334155;margin:12px 0 4px">2 · Lịch đo (hội viên đặt từ App)</div>
     <div id="ak_bookings" style="margin-bottom:14px"><div style="font-size:12px;color:#94a3b8">Đăng nhập coach để xem lịch đo.</div></div>
 
     <div style="font-weight:700;color:#334155;margin:6px 0 4px" data-i18n="ak_s3">3 · Ghi kết quả (I2)</div>

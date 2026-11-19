@@ -852,7 +852,7 @@
   function _defaultServerUrl() {
     try {
       const q = _queryConfigOverrides();
-      if (q && q.url) return q.url;
+      if (q && q.url && !_isInbodyFunctionUrl(q.url)) return q.url;
       const loc = rootScope.location;
       const origin = _locationOrigin(loc);
       if (origin && ((loc.pathname && loc.pathname.startsWith('/lab')) || !isLoopbackUrl(origin))) {
@@ -871,7 +871,13 @@
       const normSaved = savedUrl.replace(/\/+$/, '').toLowerCase();
       const normCurr = currentOrigin.replace(/\/+$/, '').toLowerCase();
       if (normSaved === normCurr) return false;
-      if (host.endsWith('.trycloudflare.com') || /ngrok|loca\.lt|gradio\.live/i.test(host)) {
+      // Chỉ coi URL tunnel đã lưu là "cũ" khi trang hiện tại cũng đang chạy trên một tunnel
+      // (backend tự phục vụ frontend). Trên host tĩnh như Netlify, origin hiện tại KHÔNG phải
+      // backend nên không được ghi đè URL server mà người dùng đã cấu hình.
+      const isTunnelHost = (h) => /\.trycloudflare\.com$/i.test(h) || /ngrok|loca\.lt|gradio\.live/i.test(h);
+      let curHost = '';
+      try { curHost = (new URL(currentOrigin).hostname || '').toLowerCase(); } catch (_) {}
+      if (isTunnelHost(host) && isTunnelHost(curHost)) {
         return true;
       }
       if (loc && typeof loc.pathname === 'string' && loc.pathname.startsWith('/lab')) {
@@ -883,8 +889,17 @@
     return false;
   }
 
+  // URL của Edge Function trích InBody không phải Server 3D. Bản cũ từng hướng dẫn đặt nó vào
+  // ô Server (?server=...inbody-extract) → tự bỏ đi để mọi máy về cấu hình mặc định, không phải đặt lại tay.
+  function _isInbodyFunctionUrl(url) {
+    return /\/functions\/v1\/inbody-extract(\/|$)/i.test(String(url || ''));
+  }
+
   function loadCfg() {
-    const q = _queryConfigOverrides();
+    let q = _queryConfigOverrides();
+    if (q && _isInbodyFunctionUrl(q.url)) {
+      q = null; // bỏ cả api_key đi kèm (đó là INBODY_API_KEY, không phải key Server 3D)
+    }
     const loc = rootScope.location;
     const currentOrigin = _locationOrigin(loc);
     const nonLoopbackOrigin = currentOrigin && !isLoopbackUrl(currentOrigin) ? currentOrigin : '';
@@ -907,6 +922,11 @@
     } catch (_) {}
 
     let healed = false;
+    if (savedUrl && _isInbodyFunctionUrl(savedUrl)) {
+      savedUrl = '';
+      savedKey = '';
+      healed = true;
+    }
     if (nonLoopbackOrigin && savedUrl && _isStaleSavedUrlForOrigin(savedUrl, nonLoopbackOrigin, loc)) {
       savedUrl = nonLoopbackOrigin;
       healed = true;
